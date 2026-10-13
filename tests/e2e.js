@@ -105,6 +105,89 @@ function startServer() {
 const TILE = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP89+5dPQAIoAOWJgdDGgAAAABJRU5ErkJggg==', 'base64');
 
 const stats = { overpass: 0, branchQueries: 0, companyQueries: 0, nominatim: 0, failNext: 0 };
+// ---------------------------------------------------------------------------
+// Google tiruan: Maps JavaScript API (Place) dan Map Tiles API
+// ---------------------------------------------------------------------------
+
+const GOOGLE_PLACES = [];
+for (let i = 1; i <= 25; i++) {
+  const p = offset(UNGARAN, 0.15 + (i % 5) * 0.15, i * 14);
+  GOOGLE_PLACES.push({ id: 'gp' + i, name: 'PT Google Uji ' + String(i).padStart(2, '0'), lat: p.lat, lng: p.lon, addr: 'Jl. Uji ' + i + ', Ungaran', types: ['corporate_office', 'point_of_interest'] });
+}
+[
+  ['gc1', 'CV Google Satu', 2.2, 40, ['wholesaler']],
+  ['gc2', 'CV Google Dua', 3.8, 200, ['hardware_store', 'store']],
+  ['gb1', 'PT Bank Google', 0.5, 90, ['bank']],
+  ['gx1', 'PT Tutup Permanen', 0.7, 180, ['corporate_office'], 'CLOSED_PERMANENTLY'],
+  ['go1', 'Toko Optik Sentosa', 0.9, 270, ['store']],
+  ['gf1', 'PT Jauh Google', 15, 135, ['manufacturer']]
+].forEach(([id, name, km, br, types, status]) => {
+  const p = offset(UNGARAN, km, br);
+  GOOGLE_PLACES.push({ id, name, lat: p.lat, lng: p.lon, addr: name + ', Jawa Tengah', types, status });
+});
+
+function mapsJsMock() {
+  return `(() => {
+    const DATA = ${JSON.stringify(GOOGLE_PLACES)};
+    const cb = new URL(document.currentScript.src).searchParams.get('callback');
+    const calls = window.__gcalls = { search: 0, fetch: 0, reqs: [] };
+    class LatLng { constructor(a, b) { this._a = a; this._b = b; } lat() { return this._a; } lng() { return this._b; } }
+    class Place {
+      constructor(o) { this.id = o.id; }
+      static async searchByText(req) {
+        calls.search++;
+        calls.reqs.push({ q: req.textQuery, fields: req.fields });
+        const b = req.locationRestriction, q = req.textQuery.toLowerCase();
+        const hits = DATA.filter((p) => p.lat >= b.south && p.lat <= b.north && p.lng >= b.west && p.lng <= b.east && p.name.toLowerCase().includes(q));
+        return { places: hits.slice(0, req.maxResultCount || 20).map((p) => Object.assign(new Place({ id: p.id }), {
+          displayName: p.name, location: new LatLng(p.lat, p.lng), formattedAddress: p.addr, types: p.types,
+          businessStatus: p.status || 'OPERATIONAL', googleMapsURI: 'https://maps.google.com/?cid=' + p.id })) };
+      }
+      async fetchFields(o) {
+        calls.fetch++;
+        const p = DATA.find((x) => x.id === this.id) || {};
+        if (o.fields.includes('location')) { this.location = new LatLng(p.lat, p.lng); this.formattedAddress = p.addr; }
+        if (o.fields.includes('nationalPhoneNumber')) {
+          this.nationalPhoneNumber = '024-6921000'; this.websiteURI = 'https://www.contoh-pt.co.id/';
+          this.rating = 4.6; this.userRatingCount = 37;
+          this.regularOpeningHours = { weekdayDescriptions: ['Senin: 08.00–17.00', 'Selasa: 08.00–17.00'] };
+        }
+        return { place: this };
+      }
+    }
+    window.google = window.google || {};
+    google.maps = google.maps || {};
+    google.maps.importLibrary = async (name) => (name === 'places' ? { Place } : {});
+    setTimeout(() => window[cb](), 5);
+  })();`;
+}
+
+const gstats = { sessions: 0, tiles: 0, viewport: 0, jsLoads: 0 };
+
+async function mockGoogle(context) {
+  await context.route(/^https:\/\/maps\.googleapis\.com\/maps\/api\/js/, (route) => {
+    gstats.jsLoads++;
+    route.fulfill({ status: 200, contentType: 'text/javascript', body: mapsJsMock() });
+  });
+  await context.route(/^https:\/\/tile\.googleapis\.com\//, (route) => {
+    const url = route.request().url();
+    const cors = { 'Access-Control-Allow-Origin': '*' };
+    if (url.includes('/v1/createSession')) {
+      gstats.sessions++;
+      const body = JSON.parse(route.request().postData() || '{}');
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: cors,
+        body: JSON.stringify({ session: 'sess-' + body.mapType, expiry: String(Math.floor(Date.now() / 1000) + 14 * 86400), tileWidth: 256, tileHeight: 256, imageFormat: 'png' }) });
+    }
+    if (url.includes('/tile/v1/viewport')) {
+      gstats.viewport++;
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: cors, body: JSON.stringify({ copyright: 'Map data ©2026 Google' }) });
+    }
+    gstats.tiles++;
+    return route.fulfill({ status: 200, contentType: 'image/png', body: TILE });
+  });
+  await context.route(/^https:\/\/developers\.google\.com\/static\/maps\//, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: TILE }));
+}
+
 
 async function mockNetwork(context) {
   await context.route(/tile\.openstreetmap\.org|arcgisonline\.com/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: TILE }));
@@ -132,7 +215,8 @@ async function mockNetwork(context) {
     const hit = /Gatot Subroto/i.test(q) ? [{ lat: '-7.1300', lon: '110.4100', place_rank: 26, display_name: 'Jl. Gatot Subroto, Ungaran' }] : [];
     route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(hit) });
   });
-  await context.route(/google|linkedin|ahu\.go\.id|idx\.co\.id/, (route) => route.fulfill({ status: 204, body: '' }));
+  // Tautan keluar (Google, LinkedIn, AHU, IDX). Hanya host eksternal; file lokal seperti js/google.js tidak ikut.
+  await context.route(/^https:\/\/([a-z0-9-]+\.)*(google\.com|linkedin\.com|ahu\.go\.id|idx\.co\.id)\//, (route) => route.fulfill({ status: 204, body: '' }));
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +231,10 @@ async function run() {
   const errors = [];
   const results = [];
   async function step(name, fn) {
-    try { await fn(); results.push('ok   ' + name); } catch (e) { results.push('FAIL ' + name + '\n     ' + (e.stack || e.message).split('\n').slice(0, 4).join('\n     ')); }
+    let line;
+    try { await fn(); line = 'ok   ' + name; } catch (e) { line = 'FAIL ' + name + '\n     ' + (e.stack || e.message).split('\n').slice(0, 4).join('\n     '); }
+    results.push(line);
+    if (process.env.VERBOSE) console.log(line);
   }
 
   const context = await browser.newContext({ viewport: { width: 1366, height: 860 }, acceptDownloads: true, locale: 'id-ID' });
@@ -506,7 +593,7 @@ async function run() {
     await page.waitForFunction((k) => Object.keys(window.__PP_STATE__.profiles).length === k, n, { timeout: 10000 });
     const p = await page.evaluate(() => Object.values(window.__PP_STATE__.profiles).find((x) => x.name === 'PT Baru Impor'));
     assert.equal(p.plafond, 3.5e9);
-    assert.equal(await page.evaluate(() => document.getElementById('dlgSettings').open), false);
+    await page.waitForFunction(() => !document.getElementById('dlgSettings').open, null, { timeout: 5000 });
   });
 
   // Ponsel
@@ -556,6 +643,167 @@ async function run() {
     await d.click('#resultList .item >> nth=0');
     await d.waitForSelector('#dossier:not([hidden])');
     await d.screenshot({ path: path.join(SHOT_DIR, '08-gelap.png') });
+  });
+
+  // Mode Google (jaringan tiruan)
+  const gctx = await browser.newContext({ viewport: { width: 1366, height: 860 }, acceptDownloads: true, locale: 'id-ID' });
+  await mockNetwork(gctx);
+  await mockGoogle(gctx);
+  const gp = await gctx.newPage();
+  gp.on('pageerror', (e) => errors.push('google pageerror: ' + e.message));
+  gp.on('console', (m) => { if (m.type() === 'error' && !/status of 429/.test(m.text())) errors.push('google console: ' + m.text()); });
+  const GKEY = 'AIzaSyTESTKEY-0123456789abcdefghijklmn';
+  const gstate = () => gp.evaluate(() => {
+    const s = window.__PP_STATE__;
+    return { ready: s.googleReady, source: s.settings.source, results: s.results.map((c) => c.name + '|' + c.zone + '|' + c.source), loading: s.resultsLoading, err: s.resultsError };
+  });
+
+  await step('Google: tanpa API key diarahkan ke Pengaturan', async () => {
+    await gp.goto(base);
+    await gp.waitForFunction(() => window.__PP_STATE__.branches.length > 0, null, { timeout: 15000 });
+    await gp.click('#sourceSeg [data-source="google"]');
+    await gp.waitForSelector('#dlgSettings[open]');
+    assert.ok(await gp.isChecked('input[name="setSource"][value="google"]'));
+    assert.match(await gp.locator('#setError').innerText(), /API key/);
+    assert.equal(gstats.jsLoads, 0);
+  });
+
+  await step('Google: simpan key → peta dasar Google + logo', async () => {
+    await gp.fill('#setGKey', 'kunci salah');
+    await gp.click('#btnSaveSettings');
+    assert.match(await gp.locator('#setError').innerText(), /AIza/);
+    await gp.fill('#setGKey', GKEY);
+    await gp.fill('#setGBudget', '6');
+    await gp.click('#btnSaveSettings');
+    await gp.waitForFunction(() => window.__PP_STATE__.googleReady === true, null, { timeout: 10000 });
+    assert.equal(gstats.sessions, 2, 'sesi peta jalan & satelit');
+    await gp.waitForTimeout(800);
+    assert.ok(gstats.tiles > 0, 'petak Google dimuat');
+    assert.ok(await gp.isVisible('.google-logo'));
+    const layersText = await gp.locator('.leaflet-control-layers').textContent();
+    assert.match(layersText, /Google Peta/);
+    assert.doesNotMatch(layersText.replace(/Google Peta/g, ''), /Peta/);
+    assert.equal(await gp.locator('.leaflet-tile-pane img[src*="tile.openstreetmap.org"]').count(), 0, 'petak OSM tidak dipakai');
+    assert.match(await gp.locator('.leaflet-control-attribution').innerText(), /Google/);
+    assert.equal(await gp.isVisible('.legend-credit'), true);
+  });
+
+  await step('Google: deteksi sekitar kantor dengan batas pencarian', async () => {
+    await gp.click('#tabbtn-cabang');
+    await gp.fill('#branchSearch', 'ungaran');
+    await gp.click('#branchList [data-branch="osm:n1001"]');
+    await gp.waitForFunction(() => window.__PP_STATE__.resultsCtx && !window.__PP_STATE__.resultsLoading && window.__PP_STATE__.results.length, null, { timeout: 15000 });
+    const st = await gstate();
+    const has = (n) => st.results.some((x) => x.startsWith(n + '|'));
+    assert.ok(has('PT Google Uji 01'));
+    assert.ok(st.results.every((x) => x.endsWith('|google')), 'semua hasil dari Google');
+    assert.ok(!has('PT Bank Google'), 'bank dikecualikan');
+    assert.ok(!has('PT Tutup Permanen'), 'tutup permanen dikecualikan');
+    assert.ok(!has('Toko Optik Sentosa'), 'tanpa label PT/CV');
+    const calls = await gp.evaluate(() => window.__gcalls.search);
+    assert.ok(calls >= 1 && calls <= 6, 'maks 6 pencarian, dapat ' + calls);
+    const fields = await gp.evaluate(() => window.__gcalls.reqs[0].fields);
+    assert.deepEqual(fields, ['displayName', 'location', 'formattedAddress', 'types', 'businessStatus', 'googleMapsURI']);
+    assert.match(await gp.locator('#detectNotice').innerText(), /Cari lebih banyak/);
+    assert.equal(await gp.isDisabled('#btnExportResults'), true, 'hasil Google tidak bisa diekspor');
+    await gp.screenshot({ path: path.join(SHOT_DIR, '09-google-deteksi.png') });
+  });
+
+  await step('Google: "Cari lebih banyak" melanjutkan sampai usaha jauh ditemukan', async () => {
+    for (let i = 0; i < 12; i++) {
+      const more = gp.locator('#detectNotice [data-action="google-more"]');
+      if (!(await more.count())) break;
+      await more.click();
+      await gp.waitForFunction(() => !window.__PP_STATE__.resultsLoading, null, { timeout: 15000 });
+    }
+    const st = await gstate();
+    assert.ok(st.results.includes('PT Jauh Google|out|google'), 'usaha 15 km masuk luar zona');
+    assert.ok(st.results.includes('CV Google Satu|orange|google'));
+    assert.match(await gp.locator('#detectNotice').innerText(), /semua petak sudah dicari/);
+  });
+
+  await step('Google: detail telepon/situs web dimuat sekali bila diminta', async () => {
+    await gp.click('#tabbtn-deteksi');
+    await gp.click('#resultList .item:has-text("PT Google Uji 01")');
+    await gp.waitForSelector('#dossier:not([hidden]) [data-action="google-details"]');
+    assert.equal(await gp.evaluate(() => window.__gcalls.fetch), 0);
+    await gp.click('[data-action="google-details"]');
+    await gp.waitForSelector('#dossierBody a[href^="tel:"]');
+    const txt = await gp.locator('#dossierBody .facts').innerText();
+    assert.match(txt, /024-6921000/);
+    assert.match(txt, /★ 4,6/);
+    assert.match(txt, /contoh-pt\.co\.id/);
+    assert.match(await gp.locator('#dossierBody .d-tags').innerText(), /Google Maps/);
+    const link = await gp.locator('#dossierBody .links a:has-text("Google Maps")').getAttribute('href');
+    assert.equal(link, 'https://maps.google.com/?cid=gp1');
+    await gp.selectOption('[data-f="status"]', 'dihubungi');
+    await gp.waitForTimeout(600);
+    const prof = await gp.evaluate(() => window.__PP_STATE__.profiles['g:gp1']);
+    assert.equal(prof.source, 'google');
+    assert.equal(prof.placeId, 'gp1');
+    assert.ok(prof.gFetchedAt > 0);
+    assert.equal(prof.phone, undefined, 'telepon Google tidak disimpan permanen');
+    await gp.click('#btnDossierClose');
+    await gp.click('#resultList .item:has-text("PT Google Uji 01")');
+    assert.equal(await gp.evaluate(() => window.__gcalls.fetch), 1, 'detail diambil dari memori');
+    await gp.screenshot({ path: path.join(SHOT_DIR, '10-google-detail.png') });
+    await gp.click('#btnDossierClose');
+  });
+
+  await step('Google: pilih ulang kantor tidak menambah pencarian', async () => {
+    const before = await gp.evaluate(() => window.__gcalls.search);
+    await gp.click('#tabbtn-cabang');
+    await gp.fill('#branchSearch', 'bawen');
+    await gp.click('#branchList [data-branch="osm:n1006"]');
+    await gp.waitForFunction(() => window.__PP_STATE__.activeBranch.name === 'BNI KCP Bawen' && !window.__PP_STATE__.resultsLoading, null, { timeout: 15000 });
+    const mid = await gp.evaluate(() => window.__gcalls.search);
+    assert.ok(mid > before, 'kantor baru memakai pencarian baru');
+    await gp.click('#tabbtn-cabang');
+    await gp.fill('#branchSearch', 'ungaran');
+    await gp.click('#branchList [data-branch="osm:n1001"]');
+    await gp.waitForFunction(() => window.__PP_STATE__.activeBranch.name === 'BNI KCP Ungaran' && !window.__PP_STATE__.resultsLoading, null, { timeout: 15000 });
+    assert.equal(await gp.evaluate(() => window.__gcalls.search), mid);
+    const st = await gstate();
+    assert.ok(st.results.includes('PT Jauh Google|out|google'), 'hasil sebelumnya dipakai lagi');
+  });
+
+  await step('Google: batas aman bulanan menghentikan pencarian', async () => {
+    const used = await gp.evaluate(() => PP.google.usage().then((u) => u.search));
+    await gp.click('#btnSettings');
+    await gp.fill('#setGCap', String(used));
+    await gp.click('#btnSaveSettings');
+    await gp.click('#tabbtn-cabang');
+    await gp.fill('#branchSearch', 'banyumanik');
+    await gp.click('#branchList [data-branch="osm:n1003"]');
+    await gp.waitForFunction(() => window.__PP_STATE__.activeBranch.name === 'BNI KCP Banyumanik' && !window.__PP_STATE__.resultsLoading, null, { timeout: 15000 });
+    const st = await gstate();
+    assert.match(st.err || '', /Batas aman pencarian/);
+    assert.equal(await gp.evaluate(() => PP.google.usage().then((u) => u.search)), used);
+  });
+
+  await step('Google: kembali ke OpenStreetMap membuang hasil Google dari peta', async () => {
+    await gp.click('#tabbtn-deteksi');
+    await gp.click('#sourceSeg [data-source="osm"]');
+    await gp.waitForFunction(() => window.__PP_STATE__.settings.source === 'osm' && !window.__PP_STATE__.resultsLoading, null, { timeout: 15000 });
+    const st = await gstate();
+    assert.ok(st.results.every((x) => !x.endsWith('|google')), 'tidak ada hasil Google di peta OSM');
+    assert.equal(await gp.locator('.google-logo').count(), 0);
+    assert.doesNotMatch(await gp.locator('.leaflet-control-layers').textContent(), /Google/);
+    // Prospek dari Google tetap ada di daftar, tetapi titiknya tidak digambar di peta OSM
+    await gp.click('#tabbtn-prospek');
+    assert.match(await gp.locator('#prospectList').innerText(), /PT Google Uji 01/);
+    assert.equal(await gp.evaluate(() => window.__PP_STATE__.results.some((c) => c.id === 'g:gp1')), false);
+  });
+
+  await step('Google: cadangan tidak menyertakan API key', async () => {
+    await gp.click('#btnSettings');
+    const [dl] = await Promise.all([gp.waitForEvent('download'), gp.click('#btnBackup')]);
+    const file = path.join(SHOT_DIR, 'cadangan-google.json');
+    await dl.saveAs(file);
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(data.settings.googleKey, '');
+    assert.ok(data.profiles.some((p) => p.placeId === 'gp1'));
+    await gp.click('#formSettings .dlg-foot button[value="cancel"]');
   });
 
   await browser.close();

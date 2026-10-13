@@ -79,6 +79,10 @@
 
     <section class="tabpanel" id="tab-deteksi" role="tabpanel" aria-labelledby="tabbtn-deteksi">
       <div class="panel-head">
+        <div class="source-seg" id="sourceSeg" role="group" aria-label="Sumber deteksi">
+          <button type="button" data-source="osm" aria-pressed="true">OpenStreetMap</button>
+          <button type="button" data-source="google" aria-pressed="false">Google Maps</button>
+        </div>
         <div class="context" id="detectContext">
           <strong>Pilih kantor BNI</strong>
           <span>Klik penanda kantor di peta atau cari di tab Cabang. PT, CV, dan badan usaha lain di sekitarnya akan terdeteksi otomatis.</span>
@@ -184,6 +188,23 @@
         <p class="hint">Prospek dengan estimasi plafond di rentang ini diberi tanda "Sesuai target".</p>
       </fieldset>
       <fieldset>
+        <legend>Sumber deteksi PT/CV</legend>
+        <div class="seg" role="radiogroup" aria-label="Sumber deteksi">
+          <label><input type="radio" name="setSource" value="osm"><span>OpenStreetMap (gratis)</span></label>
+          <label><input type="radio" name="setSource" value="google"><span>Google Maps (API key)</span></label>
+        </div>
+        <div class="google-fields" id="googleFields">
+          <label class="field"><span>Google API key</span><input type="password" id="setGKey" autocomplete="off" spellcheck="false" placeholder="AIza…"></label>
+          <div class="grid3">
+            <label class="field"><span>Maks. pencarian per deteksi</span><input id="setGBudget" type="number" min="5" max="300" step="5" inputmode="numeric"></label>
+            <label class="field"><span>Batas aman pencarian / bulan</span><input id="setGCap" type="number" min="0" step="100" inputmode="numeric"></label>
+            <label class="field"><span>Batas aman detail / bulan</span><input id="setGDetCap" type="number" min="0" step="50" inputmode="numeric"></label>
+          </div>
+          <p class="hint" id="setGUsage"></p>
+          <p class="hint">Gratis dari Google tiap bulan: 5.000 pencarian dan 1.000 detail (telepon/situs web). Batas aman menghentikan aplikasi sebelum kuota gratis terlewati; hitungannya hanya untuk perangkat ini. <button type="button" class="linklike" id="btnGoogleGuide">Cara membuat API key</button></p>
+        </div>
+      </fieldset>
+      <fieldset>
         <legend>Deteksi</legend>
         <label class="check"><input type="checkbox" id="setOthers"><span>Sertakan usaha tanpa label PT/CV: pabrik, gudang, grosir, dealer, hotel, SPBU, rumah sakit, kantor perusahaan</span></label>
         <label class="check"><input type="checkbox" id="setAuto"><span>Deteksi otomatis saat peta digeser (tanpa kantor aktif, pada zoom dekat)</span></label>
@@ -284,6 +305,18 @@
         <li><b>Google Maps</b>: tautan "Cari di Google Maps" di tab Deteksi membuka pencarian PT, CV, pabrik, dan lainnya di sekitar kantor, gratis tanpa API key. Perusahaan yang ditemukan di sana bisa dimasukkan sebagai prospek dengan menempel koordinat atau tautan tempatnya.</li>
         <li><b>Pencarian alamat</b> saat impor memakai OpenStreetMap Nominatim (maksimal 1 alamat per detik).</li>
       </ul>
+      <h3 id="helpGoogle">Mode Google Maps</h3>
+      <p>Deteksi bisa memakai data Google Maps yang lebih lengkap. Anda perlu API key sendiri dari Google Cloud:</p>
+      <ol>
+        <li>Buka <a href="https://console.cloud.google.com/" target="_blank" rel="noopener">console.cloud.google.com</a>, masuk dengan akun Google, lalu buat project baru (mis. "Peta Prospek").</li>
+        <li>Buka <b>Billing</b> dan hubungkan akun penagihan (kartu kredit/debit). Google mewajibkan ini walaupun pemakaian Anda masih dalam kuota gratis.</li>
+        <li>Buka <b>APIs &amp; Services → Library</b>, lalu aktifkan tiga API: <b>Maps JavaScript API</b>, <b>Places API (New)</b>, dan <b>Map Tiles API</b>.</li>
+        <li>Buka <b>APIs &amp; Services → Credentials → Create credentials → API key</b>, lalu salin key-nya (diawali "AIza").</li>
+        <li>Klik key tersebut untuk membatasinya. Pada <b>Application restrictions</b> pilih <b>Websites</b> dan tambahkan alamat aplikasi, mis. <code>https://emilianaaelgaa.github.io/*</code>. Pada <b>API restrictions</b> pilih <b>Restrict key</b> dan centang tiga API tadi. Simpan.</li>
+        <li>Disarankan: di <b>Billing → Budgets &amp; alerts</b> buat anggaran kecil (mis. Rp50.000) agar Anda mendapat email bila ada tagihan.</li>
+        <li>Di aplikasi ini buka <b>Pengaturan → Sumber deteksi → Google Maps</b>, tempel API key, lalu Simpan.</li>
+      </ol>
+      <p>Saat mode Google aktif, peta dasar berganti ke Google (aturan Google mewajibkan data Google tampil di peta Google). Setiap deteksi memakai paling banyak sejumlah pencarian yang Anda atur (bawaan 40); area terdekat dicari lebih dulu dan tombol "Cari lebih banyak" melanjutkan. Hasil Google tidak disimpan permanen dan tidak bisa diekspor; perusahaan yang Anda simpan ke Prospek saya tetap tersimpan beserta catatan Anda. Karena key dibatasi ke alamat situs, mode Google hanya berjalan dari alamat yang diizinkan (bukan dari file yang dibuka langsung di laptop).</p>
       <h3>Privasi dan kepatuhan</h3>
       <ul>
         <li>Semua prospek, catatan, dan data pengurus tersimpan hanya di browser perangkat ini, tidak dikirim ke server mana pun. Unduh cadangan secara berkala di Pengaturan.</li>
@@ -315,6 +348,7 @@
 <script src="js/util.js"></script>
 <script src="js/store.js"></script>
 <script src="js/osm.js"></script>
+<script src="js/google.js"></script>
 <script src="js/excel.js"></script>
 <script src="js/app.js"></script>
 </body>

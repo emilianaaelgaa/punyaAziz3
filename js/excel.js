@@ -131,7 +131,7 @@
         'Estimasi plafond (Rp)': p && p.plafond != null ? p.plafond : '',
         'Latitude': c.lat,
         'Longitude': c.lon,
-        'Asal data': c.source === 'osm' ? 'OpenStreetMap' : (c.source === 'import' ? 'Impor Excel' : 'Input manual'),
+        'Asal data': c.source === 'osm' ? 'OpenStreetMap' : c.source === 'google' ? 'Google Maps' : (c.source === 'import' ? 'Impor Excel' : 'Input manual'),
         'Tautan OpenStreetMap': osmLink(c)
       };
     });
@@ -165,7 +165,7 @@
     var XLSX = await ensureXLSX();
     var header = ['ID', 'Nama', 'Badan usaha', 'Status', 'Estimasi plafond (Rp)', 'Sesuai target', 'Produk', 'Bidang usaha',
       'Tahun berdiri', 'PIC', 'Telepon', 'Email', 'Situs web', 'Alamat', 'Kota', 'Latitude', 'Longitude',
-      'Kantor BNI terdekat', 'Jarak (km)', 'Zona', 'Nasabah BNI', 'Follow-up', 'Catatan', 'Sumber data', 'Asal data', 'Terakhir diubah'];
+      'Kantor BNI terdekat', 'Jarak (km)', 'Zona', 'Nasabah BNI', 'Follow-up', 'Catatan', 'Sumber data', 'Asal data', 'Tautan peta', 'Terakhir diubah'];
     var rows = list.map(function (x) {
       var p = x.profile;
       var target = U.inTarget(p.plafond, settings);
@@ -194,7 +194,8 @@
         'Follow-up': p.followUp || '',
         'Catatan': p.catatan || '',
         'Sumber data': p.sumberData || '',
-        'Asal data': p.source === 'osm' ? 'OpenStreetMap' : (p.source === 'import' ? 'Impor Excel' : 'Input manual'),
+        'Asal data': p.source === 'osm' ? 'OpenStreetMap' : p.source === 'google' ? 'Google Maps' : (p.source === 'import' ? 'Impor Excel' : 'Input manual'),
+        'Tautan peta': p.mapsUrl || (p.lat != null ? 'https://www.google.com/maps/search/?api=1&query=' + p.lat + ',' + p.lon : ''),
         'Terakhir diubah': p.updatedAt ? new Date(p.updatedAt).toISOString().slice(0, 16).replace('T', ' ') : ''
       };
     });
@@ -222,7 +223,7 @@
     });
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, sheet(XLSX, header, rows,
-      [22, 36, 12, 20, 18, 12, 18, 24, 12, 20, 16, 22, 24, 40, 16, 11, 11, 28, 10, 10, 11, 12, 40, 20, 14, 17]), 'Prospek');
+      [22, 36, 12, 20, 18, 12, 18, 24, 12, 20, 16, 22, 24, 40, 16, 11, 11, 28, 10, 10, 11, 12, 40, 20, 14, 40, 17]), 'Prospek');
     XLSX.utils.book_append_sheet(wb, sheet(XLSX, ['ID', 'Perusahaan', 'Nama', 'Jabatan', 'Saham (%)'], people,
       [22, 36, 28, 18, 10]), 'Pengurus');
     XLSX.utils.book_append_sheet(wb, sheet(XLSX, ['ID', 'Perusahaan', 'Tahun', 'Penjualan', 'Laba bersih', 'Total aset',

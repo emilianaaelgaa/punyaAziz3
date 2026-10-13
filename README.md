@@ -16,6 +16,7 @@ Aplikasi ini alat bantu pribadi, bukan aplikasi resmi BNI.
 - **Peta kantor BNI se-Indonesia** dari OpenStreetMap: KC, KCP, KK, dan Kanwil, dengan pencarian dan filter jenis kantor. Daftar resmi kantor bisa diimpor dari Excel.
 - **Deteksi otomatis badan usaha** di sekitar kantor yang dipilih: PT, CV, UD, PD, Firma, dan koperasi. PT Tbk dan BUMN/Persero tersembunyi secara bawaan karena biasanya di atas target plafond, tetapi bisa ditampilkan dengan satu klik. Opsional: pabrik, gudang, grosir, dealer, hotel, SPBU, dan rumah sakit yang tidak berlabel PT/CV.
 - **Mode area**: tanpa kantor aktif, geser peta ke kawasan mana pun dan zona dihitung dari kantor BNI terdekat.
+- **Mode Google Maps (opsional, API key sendiri)**: deteksi PT/CV memakai data Google Maps yang jauh lebih lengkap, di atas peta Google. Telepon, situs web, rating, dan jam buka bisa dimuat per perusahaan. Ada batas pencarian per deteksi dan batas aman bulanan agar tidak melewati kuota gratis.
 - **Jembatan ke Google Maps (gratis)**: tautan "Cari di Google Maps" membuka pencarian PT, CV, UD, pabrik, gudang, dan distributor di sekitar kantor. Perusahaan yang ditemukan bisa dimasukkan dengan menempel koordinat atau tautan Google Maps-nya.
 - **Detail perusahaan**: kategori usaha, alamat, telepon, situs web, kantor BNI terdekat, serta tautan riset ke Google Maps, Street View, Google, AHU Online, LinkedIn, dan IDX (untuk Tbk).
 - **Pipeline kredit**: status (baru → dihubungi → kunjungan → pengajuan → disetujui/ditolak), estimasi plafond dengan tanda "sesuai target", produk KMK/KI, jadwal follow-up, PIC, dan catatan.
@@ -57,9 +58,48 @@ Aplikasi membutuhkan internet untuk peta dan data OpenStreetMap. Jika jaringan k
 
 - **Kantor BNI dan badan usaha** berasal dari [OpenStreetMap](https://www.openstreetmap.org/copyright) (© kontributor OpenStreetMap, lisensi ODbL) melalui Overpass API. Data diisi sukarelawan sehingga tidak semua kantor dan perusahaan tercatat, terutama PT/CV kecil di luar kota besar. Tambahkan prospek secara manual atau impor dari Excel untuk melengkapi. Kantor BNI dapat diganti dengan daftar resmi melalui impor.
 - **Struktur organisasi dan laporan keuangan tidak tersedia gratis** untuk perusahaan tertutup, sehingga tidak bisa dideteksi otomatis. Sumber resmi data pengurus dan pemegang saham adalah AHU Online Kementerian Hukum (berbayar per perusahaan). Laporan keuangan diperoleh dari calon debitur. Hanya perusahaan Tbk yang laporan keuangannya publik di IDX. Aplikasi menyediakan formulir dan impor Excel untuk data ini.
-- **Google Maps** dipakai lewat tautan saja (gratis). Integrasi langsung dengan Google Places API memang mungkin, tetapi butuh akun Google Cloud dengan kartu kredit dan API key. Biayanya: 5.000 pencarian gratis per bulan (Text Search Pro), lalu sekitar US$32 per 1.000 pencarian. Satu pencarian hanya mengembalikan maksimal 20 hasil (60 dengan halaman lanjutan), jadi menyisir radius 10 km perlu puluhan sampai ratusan pencarian per kantor. Aturan Google juga melarang data Places ditampilkan di peta selain Google Maps, disimpan permanen (kecuali Place ID), atau diekspor massal ke Excel.
+- **Google Maps** dipakai lewat tautan (gratis), atau sebagai sumber deteksi bila Anda memasang API key sendiri (lihat [Mode Google Maps](#mode-google-maps)).
 - **Pencarian koordinat dari alamat** memakai OpenStreetMap Nominatim, dibatasi 1 alamat per detik. Hasil yang hanya akurat sampai tingkat kelurahan/kota ditandai "lokasi perkiraan".
 - **Citra satelit** (opsi lapisan peta) dari Esri World Imagery.
+
+## Mode Google Maps
+
+Sumber deteksi bisa diganti ke Google Maps di tab **Deteksi** (tombol OpenStreetMap / Google Maps) atau di **Pengaturan**. Mode ini memakai API key Google Cloud milik Anda sendiri.
+
+### Membuat API key
+
+1. Buka [console.cloud.google.com](https://console.cloud.google.com/), masuk dengan akun Google, lalu buat project baru (mis. "Peta Prospek").
+2. Buka **Billing** dan hubungkan akun penagihan (kartu kredit/debit). Google mewajibkan ini walaupun pemakaian masih dalam kuota gratis.
+3. Buka **APIs & Services → Library** dan aktifkan tiga API: **Maps JavaScript API**, **Places API (New)**, dan **Map Tiles API**.
+4. Buka **APIs & Services → Credentials → Create credentials → API key**. Salin key-nya (diawali `AIza`).
+5. Klik key tersebut untuk membatasinya:
+   - **Application restrictions → Websites**: tambahkan `https://emilianaaelgaa.github.io/*` (alamat GitHub Pages aplikasi ini).
+   - **API restrictions → Restrict key**: centang Maps JavaScript API, Places API (New), dan Map Tiles API.
+6. Disarankan: **Billing → Budgets & alerts**, buat anggaran kecil (mis. Rp50.000) agar ada email peringatan bila muncul tagihan.
+7. Di aplikasi: **Pengaturan → Sumber deteksi PT/CV → Google Maps**, tempel API key, lalu **Simpan**.
+
+Karena key dibatasi ke alamat situs, mode Google hanya berjalan dari alamat GitHub Pages, bukan dari `index.html` yang dibuka langsung di laptop. Jangan membagikan API key; key tidak ikut tersimpan di file cadangan.
+
+### Biaya dan pembatas
+
+| Pemakaian | Kuota gratis Google per bulan | Setelah kuota |
+|---|---|---|
+| Pencarian PT/CV (Text Search Pro) | 5.000 | ±US$32 per 1.000 |
+| Telepon, situs web, rating (Place Details Enterprise) | 1.000 | ±US$20 per 1.000 |
+| Penyegaran lokasi prospek tersimpan (Place Details Essentials) | 10.000 | ±US$5 per 1.000 |
+| Petak peta Google (Map Tiles 2D) | 100.000 petak | ±US$0,60 per 1.000 |
+
+Tarif dapat berubah; cek halaman harga Google Maps Platform. Pembatas di aplikasi:
+
+- **Maks. pencarian per deteksi** (bawaan 40). Pencarian dimulai dari satu kotak besar; kotak yang penuh (20 hasil) dipecah lalu dicari lagi, dimulai dari yang paling dekat ke kantor. Daerah sepi selesai dengan 1–2 pencarian; pusat kota yang padat bisa butuh puluhan. Tombol **Cari lebih banyak** melanjutkan pencarian bila belum tuntas.
+- **Batas aman bulanan** (bawaan 4.500 pencarian dan 900 detail). Aplikasi berhenti mencari bila batas ini tercapai. Hitungannya per perangkat; batas resmi tetap di Google Cloud.
+- Deteksi otomatis saat menggeser peta dimatikan di mode Google; area yang sudah dicari tidak dicari ulang selama halaman terbuka.
+- Telepon dan situs web hanya diambil saat Anda menekan **Muat telepon, situs web & rating**.
+
+### Aturan Google yang diikuti aplikasi
+
+- Data Google hanya ditampilkan di atas peta Google, lengkap dengan logo dan teks hak cipta Google. Saat kembali ke OpenStreetMap, hasil Google dihapus dari peta.
+- Hasil pencarian Google tidak disimpan permanen dan **tidak bisa diekspor** ke Excel. Simpan perusahaan yang menarik ke **Prospek saya**: yang tersimpan adalah Place ID dan catatan Anda (status, plafond, pengurus, keuangan). Lokasinya disegarkan otomatis setelah 30 hari.
 
 ## Privasi dan kepatuhan
 
@@ -91,6 +131,7 @@ css/app.css           tampilan (terang/gelap, desktop/ponsel)
 js/util.js            logika murni: deteksi badan usaha, zona, parsing OSM & Excel, rasio keuangan
 js/store.js           penyimpanan lokal (IndexedDB)
 js/osm.js             Overpass API & Nominatim, cache per sel grid 0,1°
+js/google.js          mode Google: Maps JavaScript API (Places), Map Tiles API, penghitung pemakaian
 js/excel.js           impor/ekspor Excel (SheetJS dimuat saat dibutuhkan)
 js/app.js             peta, daftar, detail prospek, dialog
 vendor/               Leaflet 1.9.4, Leaflet.markercluster 1.5.3, SheetJS 0.18.5 (beserta lisensinya)
@@ -105,4 +146,4 @@ npm test              # tes unit fungsi murni (Node 18+)
 npm run test:e2e      # tes browser dengan jaringan tiruan (butuh Playwright + Chromium)
 ```
 
-Tes browser tidak menghubungi internet; Overpass, Nominatim, dan tile peta diganti data tiruan di `tests/e2e.js`.
+Tes browser tidak menghubungi internet; Overpass, Nominatim, tile peta, Maps JavaScript API, dan Map Tiles API diganti data tiruan di `tests/e2e.js`.

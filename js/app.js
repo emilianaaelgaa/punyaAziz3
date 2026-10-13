@@ -8,6 +8,7 @@
   var S = PP.store;
   var O = PP.osm;
   var X = PP.excel;
+  var G = PP.google;
   var esc = U.esc;
 
   function $(id) { return document.getElementById(id); }
@@ -34,6 +35,11 @@
     resultsLoading: false,
     zoneFilter: { red: true, orange: true, green: true, out: true },
     statusFilter: 'all',
+    googleReady: false,
+    googleError: null,
+    gJobs: new Map(),
+    gJob: null,
+    gUsage: null,
     branchQuery: '',
     resultQuery: '',
     prospectQuery: '',
@@ -211,7 +217,7 @@
     });
     layers.osm = osm;
     layers.sat = sat;
-    (state.settings.baseLayer === 'sat' ? sat : osm).addTo(map);
+    (state.settings.baseLayer === 'sat' || state.settings.baseLayer === 'gsat' ? sat : osm).addTo(map);
 
     [['zones', 350, '0.22'], ['zoneLines', 360, '1'], ['companies', 450, '1']].forEach(function (p) {
       var pane = map.createPane(p[0]);
@@ -234,9 +240,7 @@
       spiderfyOnMaxZoom: false, chunkedLoading: true, iconCreateFunction: clusterIcon
     }).addTo(map);
 
-    L.control.layers({ 'Peta': osm, 'Satelit': sat }, {
-      'Kantor BNI': layers.branches, 'Zona': layers.zoneAll, 'Hasil deteksi': layers.results, 'Prospek saya': layers.saved
-    }, { position: 'topright' }).addTo(map);
+    rebuildLayersControl({ 'Peta': osm, 'Satelit': sat });
     L.control.scale({ position: 'bottomleft', imperial: false }).addTo(map);
 
     var Legend = L.Control.extend({
@@ -249,7 +253,8 @@
           '<div class="legend-row"><i class="sw green"></i><span>Hijau</span><b data-r="3"></b></div>' +
           '<div class="legend-row"><i class="sw out"></i><span>Luar zona</span><b data-r="4"></b></div>' +
           '<div class="legend-row"><i class="sw bank"></i><span>Kantor BNI</span></div>' +
-          '<div class="legend-row"><i class="sw saved"></i><span>Prospek saya</span></div>';
+          '<div class="legend-row"><i class="sw saved"></i><span>Prospek saya</span></div>' +
+          '<div class="legend-credit" hidden>Data kantor &copy; kontributor OpenStreetMap</div>';
         L.DomEvent.disableClickPropagation(div);
         return div;
       }
@@ -257,8 +262,9 @@
     new Legend().addTo(map);
 
     map.on('baselayerchange', function (e) {
-      state.settings.baseLayer = e.layer === sat ? 'sat' : 'osm';
+      state.settings.baseLayer = e.layer === layers.sat ? 'sat' : e.layer === layers.gsat ? 'gsat' : e.layer === layers.groad ? 'groad' : 'osm';
       saveSettingsSoon();
+      updateGoogleCopyright();
     });
     map.on('moveend', onMoveEnd);
     map.on('zoomend', updateDetectButton);
@@ -268,6 +274,132 @@
     if (v && isFinite(v.lat) && isFinite(v.lon) && isFinite(v.z)) map.setView([v.lat, v.lon], v.z);
     else if (isMobile()) map.setView([-6.9, 110.2], 6);
     else map.fitBounds([[-10.5, 95.5], [5.8, 140.8]]);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Peta dasar: OpenStreetMap atau Google (mode Google)
+  // ---------------------------------------------------------------------------
+
+  var layersControl = null;
+  var googleLogo = null;
+  var googleAttribution = '';
+
+  function isGoogleMode() { return state.settings.source === 'google'; }
+
+  function rebuildLayersControl(base) {
+    if (layersControl) layersControl.remove();
+    layersControl = L.control.layers(base, {
+      'Kantor BNI': layers.branches, 'Zona': layers.zoneAll, 'Hasil deteksi': layers.results, 'Prospek saya': layers.saved
+    }, { position: 'topright' }).addTo(map);
+  }
+
+  function removeBaseLayers() {
+    ['osm', 'sat', 'groad', 'gsat'].forEach(function (k) {
+      if (layers[k] && map.hasLayer(layers[k])) map.removeLayer(layers[k]);
+    });
+  }
+
+  var GoogleLogo = L.Control.extend({
+    options: { position: 'bottomleft' },
+    onAdd: function () {
+      var div = L.DomUtil.create('div', 'google-logo');
+      var img = document.createElement('img');
+      img.alt = 'Google';
+      img.src = G.LOGO_URL;
+      img.onerror = function () { div.textContent = 'Google'; div.classList.add('text'); };
+      div.appendChild(img);
+      return div;
+    }
+  });
+
+  function setGoogleBranding(on) {
+    if (on && !googleLogo) {
+      googleLogo = new GoogleLogo().addTo(map);
+      // Logo Google wajib di pojok kiri bawah: pindahkan ke posisi paling bawah.
+      var el = googleLogo.getContainer();
+      el.parentNode.appendChild(el);
+    }
+    if (!on && googleLogo) { googleLogo.remove(); googleLogo = null; }
+    if (!on && googleAttribution) { map.attributionControl.removeAttribution(googleAttribution); googleAttribution = ''; }
+    var credit = document.querySelector('.legend .legend-credit');
+    if (credit) credit.hidden = !on;
+  }
+
+  var updateGoogleCopyright = debounce(function () {
+    if (!map || !isGoogleMode() || !state.googleReady) return;
+    var type = map.hasLayer(layers.gsat) ? 'satellite' : 'roadmap';
+    G.copyright(type, map.getBounds(), map.getZoom()).then(function (text) {
+      if (!isGoogleMode() || !state.googleReady) return;
+      var next = text ? esc(text) : 'Peta &copy; Google';
+      if (next === googleAttribution) return;
+      if (googleAttribution) map.attributionControl.removeAttribution(googleAttribution);
+      googleAttribution = next;
+      map.attributionControl.addAttribution(googleAttribution);
+    });
+  }, 500);
+
+  function useOsmBase() {
+    removeBaseLayers();
+    setGoogleBranding(false);
+    var bl = state.settings.baseLayer;
+    (bl === 'sat' || bl === 'gsat' ? layers.sat : layers.osm).addTo(map);
+    rebuildLayersControl({ 'Peta': layers.osm, 'Satelit': layers.sat });
+  }
+
+  async function useGoogleBase() {
+    G.setKey(state.settings.googleKey);
+    showStatus('Memuat peta Google…');
+    try {
+      var road = await G.tileSession('roadmap');
+      var sat = await G.tileSession('satellite');
+      layers.groad = L.tileLayer(G.tileUrl(road.session), { maxZoom: 20, className: 'tiles-google' });
+      layers.gsat = L.tileLayer(G.tileUrl(sat.session), { maxZoom: 20, className: 'tiles-google' });
+      removeBaseLayers();
+      var bl = state.settings.baseLayer;
+      (bl === 'gsat' || bl === 'sat' ? layers.gsat : layers.groad).addTo(map);
+      rebuildLayersControl({ 'Google Peta': layers.groad, 'Google Satelit': layers.gsat });
+      state.googleReady = true;
+      state.googleError = null;
+      setGoogleBranding(true);
+      updateGoogleCopyright();
+      hideStatus();
+    } catch (e) {
+      state.googleReady = false;
+      state.googleError = e.message;
+      useOsmBase();
+      showStatus('Mode Google belum bisa dipakai: ' + e.message, 'err', 15000);
+    }
+  }
+
+  // Data Google hanya boleh tampil di atas peta Google, jadi peta dasar mengikuti sumber deteksi.
+  function applyBaseMode() {
+    renderSourceSeg();
+    if (isGoogleMode() && state.settings.googleKey) return useGoogleBase();
+    state.googleReady = false;
+    useOsmBase();
+    return Promise.resolve();
+  }
+
+  function renderSourceSeg() {
+    document.querySelectorAll('#sourceSeg [data-source]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-source') === state.settings.source));
+    });
+  }
+
+  async function switchSource(src) {
+    if (src === state.settings.source) return;
+    if (src === 'google' && !state.settings.googleKey) {
+      openSettings({ focusGoogle: true });
+      return;
+    }
+    state.settings.source = src;
+    S.set('settings', state.settings);
+    // Hasil sumber lama dibuang dulu agar data Google tidak tampil di peta lain (dan sebaliknya).
+    state.rawResults = [];
+    computeResults();
+    await applyBaseMode();
+    if (state.resultsCtx || state.activeBranch) runDetection({});
+    toast(src === 'google' ? 'Sumber deteksi: Google Maps.' : 'Sumber deteksi: OpenStreetMap.');
   }
 
   function clusterIcon(cluster) {
@@ -392,6 +524,8 @@
     prospectViews().forEach(function (v) {
       var p = v.profile;
       if (p.lat == null || inResults.has(p.id)) return;
+      // Lokasi dari Google hanya ditampilkan di atas peta Google.
+      if (p.source === 'google' && !isGoogleMode()) return;
       var c = { id: p.id, zone: v.zone || 'out', profile: p };
       var m = L.circleMarker([p.lat, p.lon], circleStyle(c, p.id === state.selectedId));
       m.bindTooltip(esc(p.name || 'Prospek tanpa nama'), { className: 'ct', direction: 'top', offset: [0, -8] });
@@ -449,13 +583,14 @@
   }, 800);
 
   var autoDetectSoon = debounce(function () {
-    if (!state.activeBranch && state.settings.autoDetect && map.getZoom() >= 13) runDetection({ auto: true });
+    if (!state.activeBranch && state.settings.autoDetect && !isGoogleMode() && map.getZoom() >= 13) runDetection({ auto: true });
   }, 700);
 
   var branchListSoon = debounce(function () { if (state.tab === 'cabang') renderBranchList(); }, 300);
 
   function onMoveEnd() {
     saveViewSoon();
+    updateGoogleCopyright();
     if (!state.activeBranch) {
       drawZones();
       autoDetectSoon();
@@ -591,7 +726,7 @@
     state.rawResults = [];
     computeResults();
     drawZones();
-    if (state.settings.autoDetect && map.getZoom() >= 13) runDetection({ auto: true });
+    if (state.settings.autoDetect && !isGoogleMode() && map.getZoom() >= 13) runDetection({ auto: true });
   }
 
   function updateActiveChip() {
@@ -615,7 +750,7 @@
       var b = state.activeBranch;
       var R = state.settings.maxRadius;
       bbox = U.bboxAround(b.lat, b.lon, R);
-      ctx = { kind: 'branch', branchId: b.id, label: 'Sekitar ' + b.name, refName: b.name, lat: b.lat, lon: b.lon, radius: R };
+      ctx = { kind: 'branch', branchId: b.id, label: 'Sekitar ' + b.name, refName: b.name, lat: b.lat, lon: b.lon, radius: R, bbox: bbox };
     } else {
       if (map.getZoom() < 12) {
         if (opts.manual) toast('Perbesar peta dulu; area ini terlalu luas untuk dideteksi.');
@@ -635,17 +770,14 @@
     state.detectCtrl = ctrl;
     state.resultsLoading = true;
     state.resultsError = null;
-    showStatus(ctx.kind === 'branch' ? 'Mendeteksi PT/CV di sekitar ' + ctx.refName + '…' : 'Mendeteksi PT/CV di area peta…');
+    var google = isGoogleMode();
+    showStatus((google ? 'Mencari di Google Maps' : 'Mendeteksi PT/CV') +
+      (ctx.kind === 'branch' ? ' di sekitar ' + ctx.refName + '…' : ' di area peta…'));
     renderResults();
     try {
-      var res = await O.loadCompanies(bbox, {
-        includeOthers: state.settings.includeOthers, force: !!opts.force, signal: ctrl.signal, endpoint: state.settings.overpass,
-        onProgress: function (i, n) {
-          if (n > 1 && seq === state.detectSeq) showStatus('Mengunduh data badan usaha (' + (i + 1) + '/' + n + ')…');
-        }
-      });
+      var res = google ? await loadGoogleResults(ctx, opts, seq, ctrl) : await loadOsmResults(ctx, opts, seq, ctrl);
       if (seq !== state.detectSeq) return;
-      state.rawResults = U.dedupeCompanies(res.items);
+      state.rawResults = res.items;
       state.resultsCtx = ctx;
       state.resultsError = res.error ? res.error.message : null;
       state.resultLimit = 150;
@@ -667,6 +799,67 @@
     }
   }
 
+  async function loadOsmResults(ctx, opts, seq, ctrl) {
+    var res = await O.loadCompanies(ctx.bbox, {
+      includeOthers: state.settings.includeOthers, force: !!opts.force, signal: ctrl.signal, endpoint: state.settings.overpass,
+      onProgress: function (i, n) {
+        if (n > 1 && seq === state.detectSeq) showStatus('Mengunduh data badan usaha (' + (i + 1) + '/' + n + ')…');
+      }
+    });
+    return { items: U.dedupeCompanies(res.items), error: res.error };
+  }
+
+  function googleTerms() {
+    var t = ['PT', 'CV'];
+    if (state.settings.includeOthers) t = t.concat(['UD', 'Koperasi', 'pabrik', 'gudang', 'distributor']);
+    return t;
+  }
+
+  function googleJobKey(ctx, terms) {
+    var where = ctx.kind === 'branch' ? 'b:' + ctx.branchId + ':' + ctx.radius
+      : 'a:' + ctx.bbox.map(function (n) { return n.toFixed(3); }).join(',');
+    return where + ':' + terms.join(',');
+  }
+
+  // Pencarian Google per petak. Area yang sama tidak dicari ulang; "Cari lebih banyak" melanjutkan antrean.
+  async function loadGoogleResults(ctx, opts, seq, ctrl) {
+    var s = state.settings;
+    if (!s.googleKey) throw new Error('Isi Google API key di Pengaturan untuk memakai mode Google.');
+    if (!state.googleReady) throw new Error('Peta Google belum siap' + (state.googleError ? ': ' + state.googleError : '.'));
+    var terms = googleTerms();
+    var key = googleJobKey(ctx, terms);
+    var job = state.gJobs.get(key);
+    var fresh = false;
+    if (!job || opts.force) {
+      job = U.createGoogleJob(ctx.kind === 'branch'
+        ? { lat: ctx.lat, lon: ctx.lon, radiusKm: ctx.radius, terms: terms }
+        : { bbox: ctx.bbox, terms: terms });
+      job.key = key;
+      state.gJobs.set(key, job);
+      fresh = true;
+    }
+    var budget = fresh || opts.more ? s.googleBudget : 0;
+    var error = null;
+    try {
+      await U.runGoogleJob(job, function (term, b) {
+        return G.searchText(term, b, { monthlyCap: s.googleMonthlyCap });
+      }, budget, function (j, used) {
+        if (seq === state.detectSeq) showStatus('Mencari di Google Maps (' + used + '/' + budget + ' pencarian)…');
+      }, function () { return ctrl.signal.aborted || seq !== state.detectSeq; });
+    } catch (e) {
+      if (!job.found.size) throw e;
+      error = e;
+    }
+    state.gJob = job;
+    state.gUsage = await G.usage();
+    var items = [];
+    job.found.forEach(function (p) {
+      var c = U.googlePlaceToCompany(p, s.includeOthers);
+      if (c) items.push(c);
+    });
+    return { items: items, error: error };
+  }
+
   function profileFor(c) {
     if (state.profiles[c.id]) return state.profiles[c.id];
     var alt = c.altIds || [];
@@ -678,7 +871,8 @@
     return {
       id: p.id, source: p.source, osm: p.osm, name: p.name || 'Prospek tanpa nama', entity: p.entity || 'Lainnya',
       lat: p.lat, lon: p.lon, address: p.address || '', city: p.city || '', phone: p.phone || '', email: p.email || '',
-      website: p.website || '', category: p.category || p.bidang || '', operator: p.operator || '', tags: p.tags
+      website: p.website || '', category: p.category || p.bidang || '', operator: p.operator || '', tags: p.tags,
+      placeId: p.placeId || '', mapsUrl: p.mapsUrl || ''
     };
   }
 
@@ -714,6 +908,7 @@
       Object.keys(state.profiles).forEach(function (id) {
         var p = state.profiles[id];
         if (seen.has(id) || p.lat == null || !p.name) return;
+        if (p.source === 'google' && !isGoogleMode()) return;
         if (ctx.kind === 'branch' && U.haversineKm(ctx.lat, ctx.lon, p.lat, p.lon) > ctx.radius) return;
         if (ctx.kind === 'area' && !inBBox(p, ctx.bbox)) return;
         add(profileAsCompany(p), p);
@@ -800,8 +995,10 @@
     p = U.newProfile({
       id: item.id, name: item.name, entity: item.entity, lat: item.lat, lon: item.lon, address: item.address, city: item.city,
       phone: item.phone, email: item.email, website: item.website, category: item.category, osm: item.osm,
-      operator: item.operator, tags: item.tags
+      operator: item.operator, tags: item.tags, placeId: item.placeId, mapsUrl: item.mapsUrl
     }, item.source === 'osm' ? 'osm' : item.source);
+    // Koordinat dari Google hanya boleh disimpan 30 hari; catat kapan diambil agar bisa disegarkan.
+    if (p.source === 'google') p.gFetchedAt = Date.now();
     state.profiles[p.id] = p;
     item.profile = p;
     var r = state.results.find(function (c) { return c.id === item.id; });
@@ -956,12 +1153,13 @@
     }).join('') : '';
 
     // Pemberitahuan
-    var notice = '';
-    if (state.resultsError && state.results.length) notice = 'Sebagian data gagal dimuat: ' + esc(state.resultsError) + ' <button type="button" data-action="retry-detect">Coba lagi</button>';
+    var notes = [];
+    if (state.resultsError && state.results.length) notes.push('Sebagian data gagal dimuat: ' + esc(state.resultsError) + ' <button type="button" data-action="retry-detect">Coba lagi</button>');
+    if (hasCtx && isGoogleMode() && state.gJob && !state.resultsLoading) notes.push(googleNoticeHTML());
     var hiddenEnt = state.results.filter(function (c) { return ef[c.entity] === false; }).length;
-    if (!notice && hiddenEnt) notice = U.formatCount(hiddenEnt) + ' hasil disembunyikan oleh filter badan usaha (mis. PT Tbk dan BUMN yang biasanya di atas target plafond).';
-    $('detectNotice').innerHTML = notice;
-    $('detectNotice').hidden = !notice;
+    if (!notes.length && hiddenEnt) notes.push(U.formatCount(hiddenEnt) + ' hasil disembunyikan oleh filter badan usaha (mis. PT Tbk dan BUMN yang biasanya di atas target plafond).');
+    $('detectNotice').innerHTML = notes.join('<br>');
+    $('detectNotice').hidden = !notes.length;
 
     var list = filteredResults();
     var shown = list.slice(0, state.resultLimit);
@@ -990,8 +1188,21 @@
     }
     $('resultEmpty').innerHTML = empty;
     $('resultEmpty').hidden = !empty;
-    $('btnExportResults').disabled = !list.length;
+    $('btnExportResults').disabled = !list.length || isGoogleMode();
+    $('btnExportResults').title = isGoogleMode() ? 'Hasil dari Google Maps tidak boleh diekspor (aturan Google). Simpan ke Prospek saya, lalu ekspor dari sana.' : 'Ekspor hasil ke Excel';
     $('btnRefreshDetect').disabled = !hasCtx || state.resultsLoading;
+  }
+
+  function googleNoticeHTML() {
+    var job = state.gJob;
+    var u = state.gUsage || {};
+    var s = state.settings;
+    var html = 'Google Maps: ' + U.formatCount(job.calls) + ' pencarian untuk area ini' +
+      (job.done ? ', semua petak sudah dicari.' : (job.saturated ? '.' : ', area terdekat didahulukan.')) +
+      ' Bulan ini ' + U.formatCount(u.search || 0) + ' dari batas aman ' + U.formatCount(s.googleMonthlyCap) + ' (gratis 5.000).';
+    if (!job.done) html += ' <button type="button" data-action="google-more">Cari lebih banyak (+' + U.formatCount(s.googleBudget) + ' pencarian)</button>';
+    html += '<br>Hasil Google tidak bisa diekspor; simpan perusahaan ke Prospek saya untuk diekspor.';
+    return html;
   }
 
   function resultItemHTML(c) {
@@ -1001,6 +1212,7 @@
     if (p && p.plafond != null) tags += '<span class="tag">' + esc(U.formatRpShort(p.plafond)) + '</span>';
     if (c.source === 'import') tags += '<span class="tag">Impor</span>';
     else if (c.source === 'manual') tags += '<span class="tag">Manual</span>';
+    if (c.closedTemporarily) tags += '<span class="tag warn">Tutup sementara</span>';
     var sub = [c.category && c.category !== 'Lainnya' ? c.category : '', c.address || c.city].filter(Boolean).join(' · ');
     var side = '<b>' + U.formatKm(c.dist) + '</b>';
     if (state.activeBranch && c.nearest && c.nearest.id !== state.activeBranch.id && c.nearest.dist + 0.05 < c.dist) {
@@ -1133,6 +1345,10 @@
     renderDossier();
     $('dossier').hidden = false;
     $('app').classList.add('dossier-open');
+    var pr = item.profile;
+    if (pr && pr.source === 'google' && pr.placeId && Date.now() - (pr.gFetchedAt || 0) > 30 * 864e5 && isGoogleMode() && state.googleReady) {
+      refreshGoogleProfile(pr);
+    }
     $('saveState').textContent = item.profile ? 'Tersimpan di perangkat ini' : '';
     $('saveState').className = 'save-state';
     highlightSelected();
@@ -1142,6 +1358,23 @@
       if (n) n.focus();
     } else {
       $('dossierBody').scrollTop = 0;
+    }
+  }
+
+  // Koordinat dari Google disegarkan bila sudah lebih dari 30 hari (batas penyimpanan menurut aturan Google).
+  async function refreshGoogleProfile(p) {
+    try {
+      var r = await G.refreshBasic(p.placeId);
+      if (!r) return;
+      p.lat = r.lat;
+      p.lon = r.lon;
+      if (r.address) p.address = r.address;
+      p.gFetchedAt = Date.now();
+      touch(p);
+      computeResults();
+      if (dossierItem && dossierItem.profile === p) openDossier(p.id, { pan: false });
+    } catch (e) {
+      /* dicoba lagi saat detail dibuka berikutnya */
     }
   }
 
@@ -1192,7 +1425,8 @@
     var item = dossierItem;
     if (!item) return;
     var p = item.profile;
-    var editableBase = item.source !== 'osm';
+    var editableBase = item.source === 'import' || item.source === 'manual';
+    var isGoogleItem = item.source === 'google' && !!item.placeId;
     var html = [];
     var name = p ? p.name : item.name;
     var entity = p ? p.entity : item.entity;
@@ -1216,7 +1450,8 @@
       tags += '<span class="zone-pill ' + item.zone + '">' + (item.zone === 'out' ? 'Luar zona' : 'Zona ' + U.ZONE_LABEL[item.zone].toLowerCase()) +
         (item.dist != null ? ' · ' + esc(U.formatKm(item.dist)) + (ref ? ' dari ' + esc(ref) : '') : '') + '</span>';
     }
-    tags += '<span class="tag">' + (item.source === 'osm' ? 'OpenStreetMap' : item.source === 'import' ? 'Impor Excel' : 'Input manual') + '</span>';
+    tags += '<span class="tag">' + (item.source === 'osm' ? 'OpenStreetMap' : item.source === 'google' ? 'Google Maps' :
+      item.source === 'import' ? 'Impor Excel' : 'Input manual') + '</span>';
     html.push('<div class="d-tags">' + tags + '</div>');
     html.push('</div>');
 
@@ -1226,7 +1461,8 @@
     if (item.viaOperator && item.operator) facts.push(['Pengelola', esc(item.operator)]);
     else if (item.operator && item.operator !== item.name) facts.push(['Operator', esc(item.operator)]);
     if (!editableBase) {
-      facts.push(['Alamat', item.address ? esc(item.address) : '<span class="hint">Belum tercatat di OpenStreetMap</span>']);
+      facts.push(['Alamat', item.address ? esc(item.address) : '<span class="hint">' + (isGoogleItem ? 'Alamat belum tersedia' : 'Belum tercatat di OpenStreetMap') + '</span>']);
+      if (isGoogleItem) googleFacts(item).forEach(function (f) { facts.push(f); });
       if (item.phone) facts.push(['Telepon', '<a href="tel:' + esc(item.phone.replace(/[^\d+]/g, '')) + '">' + esc(item.phone) + '</a>']);
       if (item.email) facts.push(['Email', '<a href="mailto:' + esc(item.email) + '">' + esc(item.email) + '</a>']);
       var web = U.safeUrl(item.website);
@@ -1264,7 +1500,8 @@
     var refB = refBranchFor(item);
     if (item.lat != null) {
       if (refB) links.push(linkBtn('https://www.google.com/maps/dir/?api=1&origin=' + refB.lat + ',' + refB.lon + '&destination=' + item.lat + ',' + item.lon + '&travelmode=driving', 'route', 'Rute dari kantor'));
-      links.push(linkBtn('https://www.google.com/maps/search/' + encodeURIComponent(name) + '/@' + item.lat + ',' + item.lon + ',17z', 'pin', 'Google Maps'));
+      links.push(linkBtn(isGoogleItem && item.mapsUrl ? item.mapsUrl
+        : 'https://www.google.com/maps/search/' + encodeURIComponent(name) + '/@' + item.lat + ',' + item.lon + ',17z', 'pin', 'Google Maps'));
       links.push(linkBtn('https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=' + item.lat + ',' + item.lon, 'eye', 'Street View'));
     }
     links.push(linkBtn('https://www.google.com/search?q=' + encodeURIComponent('"' + name + '"' + (item.city ? ' ' + item.city : '')), 'search', 'Google'));
@@ -1317,6 +1554,30 @@
 
     html.push('<div id="dossierFoot">' + dossierFootHTML(p) + '</div>');
     $('dossierBody').innerHTML = html.join('');
+  }
+
+  // Telepon, situs web, rating, dan jam buka dari Google diambil hanya bila diminta (tarif detail lebih mahal).
+  function googleFacts(item) {
+    var d = G.cachedDetails(item.placeId);
+    if (!d) {
+      var can = isGoogleMode() && state.googleReady;
+      return [['Kontak', can
+        ? '<button type="button" class="btn small" data-action="google-details"><svg class="i"><use href="#i-search"/></svg>Muat telepon, situs web & rating</button>' +
+          '<span class="hint" style="display:block;margin-top:4px">1 permintaan detail Google (gratis ' + U.formatCount(1000) + '/bulan)</span>'
+        : '<span class="hint">Telepon dan situs web dari Google tersedia saat sumber deteksi Google Maps aktif.</span>']];
+    }
+    var out = [];
+    if (d.phone) out.push(['Telepon', '<a href="tel:' + esc(d.phone.replace(/[^\d+]/g, '')) + '">' + esc(d.phone) + '</a>']);
+    var web = U.safeUrl(d.website);
+    if (web) out.push(['Situs web', '<a href="' + esc(web) + '" target="_blank" rel="noopener">' + esc(d.website.replace(/^https?:\/\//, '').replace(/\/$/, '')) + '</a>']);
+    if (d.rating != null) {
+      out.push(['Rating Google', '★ ' + esc(String(d.rating).replace('.', ',')) + (d.ratingCount != null ? ' · ' + esc(U.formatCount(d.ratingCount)) + ' ulasan' : '')]);
+    }
+    if (d.hours && d.hours.length) {
+      out.push(['Jam buka', '<details><summary>' + esc(d.hours[0]) + '</summary>' + d.hours.slice(1).map(function (h) { return esc(h); }).join('<br>') + '</details>']);
+    }
+    if (!out.length) out.push(['Kontak', '<span class="hint">Google tidak punya telepon atau situs web untuk tempat ini.</span>']);
+    return out;
   }
 
   function dossierFootHTML(p) {
@@ -1531,6 +1792,20 @@
         p = dossierItem.profile;
         if (p) startPick('move', p.id);
         break;
+      case 'google-details':
+        if (!dossierItem.placeId) return;
+        btn.disabled = true;
+        btn.lastChild.textContent = 'Memuat…';
+        try {
+          await G.details(dossierItem.placeId, { monthlyCap: state.settings.googleDetailsCap });
+          state.gUsage = await G.usage();
+          renderDossier();
+        } catch (e) {
+          toast(e.message, { error: true, ms: 8000 });
+          btn.disabled = false;
+          btn.lastChild.textContent = 'Muat telepon, situs web & rating';
+        }
+        break;
       case 'apply-coord':
         p = dossierItem.profile;
         if (!p) return;
@@ -1669,8 +1944,26 @@
   // Dialog pengaturan
   // ---------------------------------------------------------------------------
 
-  function openSettings() {
+  function updateGoogleFields() {
+    var el = document.querySelector('input[name="setSource"]:checked');
+    $('googleFields').hidden = !el || el.value !== 'google';
+  }
+
+  function openSettings(opts) {
+    opts = opts || {};
     var s = state.settings;
+    var src = opts.focusGoogle ? 'google' : s.source;
+    document.querySelectorAll('input[name="setSource"]').forEach(function (r) { r.checked = r.value === src; });
+    $('setGKey').value = s.googleKey || '';
+    $('setGBudget').value = s.googleBudget;
+    $('setGCap').value = s.googleMonthlyCap;
+    $('setGDetCap').value = s.googleDetailsCap;
+    $('setGUsage').textContent = '';
+    G.usage().then(function (u) {
+      $('setGUsage').textContent = 'Pemakaian Google bulan ini di perangkat ini: ' + U.formatCount(u.search || 0) + ' pencarian, ' +
+        U.formatCount(u.details || 0) + ' detail, ' + U.formatCount(u.basic || 0) + ' penyegaran lokasi.';
+    });
+    updateGoogleFields();
     $('setR1').value = s.radii[0];
     $('setR2').value = s.radii[1];
     $('setR3').value = s.radii[2];
@@ -1694,6 +1987,11 @@
     });
     $('setError').hidden = true;
     $('dlgSettings').showModal();
+    if (opts.focusGoogle) {
+      $('setGKey').focus();
+      $('setError').textContent = 'Isi Google API key dulu untuk memakai sumber Google Maps.';
+      $('setError').hidden = false;
+    }
   }
 
   function onSettingsSubmit(e) {
@@ -1704,6 +2002,16 @@
     var err = U.validateRadii(r) || U.validateMaxRadius(rMax, r[2]);
     var tMin = parseFloat($('setTMin').value), tMax = parseFloat($('setTMax').value);
     if (!err && !(tMin >= 0 && tMax > tMin)) err = 'Target maksimal harus lebih besar dari minimal.';
+    var srcEl = document.querySelector('input[name="setSource"]:checked');
+    var source = srcEl ? srcEl.value : 'osm';
+    var gKey = $('setGKey').value.trim();
+    var gBudget = parseInt($('setGBudget').value, 10);
+    var gCap = parseInt($('setGCap').value, 10);
+    var gDetCap = parseInt($('setGDetCap').value, 10);
+    if (!err && source === 'google' && !gKey) err = 'Isi Google API key untuk memakai sumber Google Maps.';
+    if (!err && gKey && !/^[A-Za-z0-9_\-]{30,}$/.test(gKey)) err = 'API key Google biasanya diawali "AIza" dan panjangnya 39 karakter tanpa spasi. Periksa lagi.';
+    if (!err && !(gBudget >= 5 && gBudget <= 300)) err = 'Maksimal pencarian per deteksi harus antara 5 dan 300.';
+    if (!err && !(gCap >= 0 && gDetCap >= 0)) err = 'Batas aman bulanan tidak boleh kosong atau negatif.';
     if (err) {
       e.preventDefault();
       $('setError').textContent = err;
@@ -1715,6 +2023,7 @@
     var othersChanged = $('setOthers').checked !== s.includeOthers;
     var sourceChanged = $('setBranchSource').value !== s.branchSource;
     var themeChanged = $('setTheme').value !== s.theme;
+    var googleChanged = source !== s.source || gKey !== s.googleKey;
     s.radii = r;
     s.maxRadius = rMax;
     s.targetMin = Math.round(tMin * 1e9);
@@ -1724,6 +2033,11 @@
     s.branchSource = $('setBranchSource').value;
     s.overpass = $('setOverpass').value;
     s.theme = $('setTheme').value;
+    s.source = source;
+    s.googleKey = gKey;
+    s.googleBudget = gBudget;
+    s.googleMonthlyCap = gCap;
+    s.googleDetailsCap = gDetCap;
     S.set('settings', s);
     if (themeChanged) { applyTheme(); onThemeChanged(); }
     applyRadiiLabels();
@@ -1733,7 +2047,13 @@
       else rebuildBranches();
     }
     drawZones();
-    if (state.resultsCtx && (othersChanged || (radiiChanged && state.activeBranch))) runDetection({});
+    if (googleChanged) {
+      state.rawResults = [];
+      computeResults();
+      applyBaseMode().then(function () {
+        if (state.resultsCtx || state.activeBranch) runDetection({});
+      });
+    } else if (state.resultsCtx && (othersChanged || (radiiChanged && state.activeBranch))) runDetection({});
     else computeResults();
     if (dossierItem) renderDossier();
     toast('Pengaturan disimpan.');
@@ -1749,6 +2069,9 @@
     p.plafond = num(p.plafond);
     p.status = U.STATUS_LABEL[p.status] ? p.status : 'baru';
     p.entity = U.ENTITY_LABEL[p.entity] ? p.entity : (U.detectEntity(p.name) || 'Lainnya');
+    if (p.placeId != null) p.placeId = String(p.placeId);
+    if (p.mapsUrl != null) p.mapsUrl = U.safeUrl(p.mapsUrl);
+    if (p.gFetchedAt != null) p.gFetchedAt = num(p.gFetchedAt) || 0;
     p.pengurus = Array.isArray(p.pengurus) ? p.pengurus.filter(Boolean).map(function (o) {
       return { nama: String(o.nama || ''), jabatan: U.JABATAN.indexOf(o.jabatan) >= 0 ? o.jabatan : 'Lainnya', saham: num(o.saham) };
     }) : [];
@@ -1763,7 +2086,7 @@
   function backupData() {
     var data = {
       app: 'peta-prospek-kredit', version: 1, exportedAt: new Date().toISOString(),
-      settings: state.settings,
+      settings: Object.assign({}, state.settings, { googleKey: '' }),
       profiles: Object.keys(state.profiles).map(function (id) { return state.profiles[id]; }),
       branchesImport: state.branchesImport
     };
@@ -1802,11 +2125,15 @@
     }
     if (data.settings) {
       var keepView = state.settings.view;
+      var keepKey = state.settings.googleKey;
       state.settings = U.mergeSettings(data.settings);
       state.settings.view = keepView;
+      state.settings.googleKey = keepKey;
+      if (!keepKey) state.settings.source = 'osm';
       await S.set('settings', state.settings);
       applyTheme();
       applyRadiiLabels();
+      applyBaseMode();
     }
     $('dlgSettings').close();
     rebuildBranches();
@@ -2054,6 +2381,10 @@
       updateCounts();
       return;
     }
+    if (btn.hasAttribute('data-source')) {
+      switchSource(btn.getAttribute('data-source'));
+      return;
+    }
     if (btn.hasAttribute('data-status')) {
       state.statusFilter = btn.getAttribute('data-status');
       renderProspects();
@@ -2065,6 +2396,7 @@
       case 'more-prospects': state.prospectLimit += 150; renderProspects(); break;
       case 'reload-branches': loadOsmBranches(true); break;
       case 'retry-detect': runDetection({ manual: true }); break;
+      case 'google-more': runDetection({ more: true, manual: true }); break;
       case 'goto-cabang': setTab('cabang'); $('branchSearch').focus(); break;
       case 'include-others':
         state.settings.includeOthers = true;
@@ -2120,6 +2452,17 @@
     $('btnImport').addEventListener('click', openImport);
     $('btnSettings').addEventListener('click', openSettings);
     $('btnHelp').addEventListener('click', function () { $('dlgHelp').showModal(); });
+    document.querySelectorAll('input[name="setSource"]').forEach(function (r) { r.addEventListener('change', updateGoogleFields); });
+    $('btnGoogleGuide').addEventListener('click', function () {
+      $('dlgSettings').close();
+      $('dlgHelp').showModal();
+      $('helpGoogle').scrollIntoView({ block: 'start' });
+    });
+    G.onAuthFailure = function (err) {
+      state.googleError = err.message;
+      showStatus(err.message, 'err', 15000);
+      if (state.resultsLoading) { state.resultsLoading = false; renderResults(); }
+    };
 
     $('btnDossierClose').addEventListener('click', function () { closeDossier(); });
     $('dossierBody').addEventListener('input', onDossierInput);
@@ -2202,10 +2545,12 @@
     rebuildBranches();
     renderResults();
     renderProspects();
+    // Peta Google harus siap sebelum hasil Google ditampilkan.
+    await applyBaseMode();
 
     var last = state.settings.lastBranchId && state.branchById.get(state.settings.lastBranchId);
     if (last) selectBranch(last, { fly: !state.settings.view });
-    else if (state.settings.autoDetect && map.getZoom() >= 13) runDetection({ auto: true });
+    else if (state.settings.autoDetect && !isGoogleMode() && map.getZoom() >= 13) runDetection({ auto: true });
 
     var stale = !cached || !cached.items || !cached.items.length || Date.now() - cached.t > O.BRANCH_TTL;
     if (state.settings.branchSource !== 'import' && stale) {

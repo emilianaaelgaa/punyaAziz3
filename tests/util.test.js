@@ -291,3 +291,66 @@ test('pengaturan dan URL', () => {
   assert.equal(U.safeUrl('javascript:alert(1)'), '');
   assert.equal(U.esc('<b>"x"</b>'), '&lt;b&gt;&quot;x&quot;&lt;/b&gt;');
 });
+
+test('Google: konversi hasil tempat', () => {
+  const base = { id: 'abc', name: 'PT Sinar Jaya', lat: -7.13, lon: 110.41, address: 'Jl. A', types: ['corporate_office', 'point_of_interest'], businessStatus: 'OPERATIONAL' };
+  const c = U.googlePlaceToCompany(base, false);
+  assert.equal(c.id, 'g:abc');
+  assert.equal(c.entity, 'PT');
+  assert.equal(c.category, 'Kantor perusahaan');
+  assert.match(c.mapsUrl, /query_place_id=abc/);
+  assert.equal(U.googlePlaceToCompany({ ...base, businessStatus: 'CLOSED_PERMANENTLY' }), null, 'tutup permanen');
+  assert.equal(U.googlePlaceToCompany({ ...base, name: 'PT Bank Mandiri (Persero) Tbk', types: ['bank'] }), null, 'bank dikecualikan');
+  assert.equal(U.googlePlaceToCompany({ ...base, name: 'Toko Sumber Rejeki' }, false), null, 'tanpa label PT/CV');
+  assert.equal(U.googlePlaceToCompany({ ...base, name: 'Toko Sumber Rejeki' }, true).entity, 'Lainnya');
+  assert.equal(U.googleCategory(['some_new_type', 'establishment']), 'Some new type');
+  assert.equal(U.googleCategory(['store', 'hardware_store']), 'Toko besi / perkakas');
+});
+
+test('Google: pencarian per petak dipecah saat penuh & mendahulukan pusat', async () => {
+  // 30 tempat "PT" berkumpul di dekat pusat, 3 tempat jauh
+  const center = { lat: -7.1386, lon: 110.4053 };
+  const places = [];
+  // Tersebar ±3 km di timur laut pusat (jarak antar-titik ±660 m)
+  for (let i = 0; i < 30; i++) places.push({ id: 'n' + i, name: 'PT Dekat ' + i, lat: center.lat + 0.0005 + (i % 6) * 0.006, lon: center.lon + 0.0005 + Math.floor(i / 6) * 0.006 });
+  for (let i = 0; i < 3; i++) places.push({ id: 'f' + i, name: 'PT Jauh ' + i, lat: center.lat + 0.12, lon: center.lon + 0.05 * i });
+  let calls = 0;
+  const cache = new Map();
+  const search = async (term, b) => {
+    const k = term + b.join();
+    if (cache.has(k)) return { places: cache.get(k), cached: true };
+    calls++;
+    const hit = places.filter((p) => p.name.startsWith(term) && p.lat >= b[0] && p.lat <= b[2] && p.lon >= b[1] && p.lon <= b[3]).slice(0, 20);
+    cache.set(k, hit);
+    return { places: hit, cached: false };
+  };
+  const job = U.createGoogleJob({ lat: center.lat, lon: center.lon, radiusKm: 20, terms: ['PT'] });
+  assert.equal(job.queue.length, 1, 'mulai dari satu petak besar');
+  assert.equal(U.splitBBox([0, 0, 4, 4], 4).length, 16);
+  assert.deepEqual(U.splitBBox([0, 0, 2, 2]), [[0, 0, 1, 1], [0, 1, 1, 2], [1, 0, 2, 1], [1, 1, 2, 2]]);
+  const used1 = await U.runGoogleJob(job, search, 10);
+  assert.equal(used1, 10);
+  // Petak pusat diproses lebih dulu dan petak yang penuh dipecah, jadi 30 tempat dekat sudah terkumpul
+  const near = [...job.found.keys()].filter((k) => k.startsWith('n')).length;
+  assert.equal(near, 30);
+  assert.equal(job.done, false);
+  // Lanjutkan sampai habis: tempat jauh ikut terambil
+  await U.runGoogleJob(job, search, 500);
+  assert.equal(job.done, true);
+  assert.equal(job.found.size, 33);
+  assert.equal(job.calls, calls);
+  // Pekerjaan baru untuk area yang sama memakai cache: tidak ada panggilan baru
+  const again = U.createGoogleJob({ lat: center.lat, lon: center.lon, radiusKm: 20, terms: ['PT'] });
+  const used2 = await U.runGoogleJob(again, search, 3);
+  assert.equal(used2, 0, 'semua petak sudah ada di cache');
+  assert.equal(again.found.size, 33);
+  assert.equal(again.done, true);
+  // Petak di luar lingkaran radius tidak masuk antrean
+  const small = U.createGoogleJob({ lat: center.lat, lon: center.lon, radiusKm: 20, terms: ['PT', 'CV'], startKm: 6 });
+  assert.ok(small.queue.length > 2 && small.queue.every((t) => t.d <= 20), 'petak di luar lingkaran tidak masuk antrean');
+  // Daerah sepi: satu pencarian per kata kunci sudah selesai
+  const sparse = U.createGoogleJob({ lat: 0, lon: 120, radiusKm: 20, terms: ['PT', 'CV'] });
+  const usedSparse = await U.runGoogleJob(sparse, async () => ({ places: [{ id: 'x' }], cached: false }), 40);
+  assert.equal(usedSparse, 2);
+  assert.equal(sparse.done, true);
+});

@@ -231,6 +231,17 @@ select { padding-right: 28px; }
 .toolbar .search { flex: 1; min-width: 0; }
 .toolbar select { width: auto; flex: none; max-width: 140px; }
 
+.source-seg { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 9px; background: var(--wash); }
+.source-seg button {
+  border: 0; background: none; padding: 5px 8px; border-radius: 7px;
+  font-size: 12px; font-weight: 700; color: var(--ink-2); cursor: pointer;
+}
+.source-seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
+.linklike { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; text-decoration: underline; }
+.google-logo { line-height: 0; pointer-events: none; }
+.google-logo img { height: 18px; width: auto; display: block; }
+.google-logo.text { line-height: 1; font: 700 15px/1 Arial, sans-serif; color: #5f6368; text-shadow: 0 0 2px #fff; }
+.legend-credit { margin-top: 5px; padding-top: 5px; border-top: 1px solid var(--line); font-size: 10.5px; color: var(--ink-3); }
 .context { display: flex; flex-direction: column; gap: 2px; }
 .context strong { font-family: var(--font-display); font-size: 15px; line-height: 1.25; }
 .context span { font-size: 12px; color: var(--ink-2); }

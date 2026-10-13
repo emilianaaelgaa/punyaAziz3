@@ -68,7 +68,12 @@
     entityFilter: { PT: true, CV: true, UD: true, PD: true, Firma: true, Koperasi: true, Tbk: false, BUMN: false, Lainnya: true },
     branchTypes: { KC: true, KCP: true, KK: true, Kanwil: true, Kantor: true },
     view: null,
-    lastBranchId: null
+    lastBranchId: null,
+    source: 'osm',
+    googleKey: '',
+    googleBudget: 40,
+    googleMonthlyCap: 4500,
+    googleDetailsCap: 900
   };
 
   var INDONESIA_BBOX = [-11.5, 94.5, 6.5, 141.5];
@@ -1171,7 +1176,8 @@
   // Profil prospek, keuangan, struktur organisasi
   // ---------------------------------------------------------------------------
 
-  var PROFILE_BASE_FIELDS = ['name', 'entity', 'lat', 'lon', 'address', 'city', 'phone', 'email', 'website', 'category', 'osm', 'operator', 'tags'];
+  var PROFILE_BASE_FIELDS = ['name', 'entity', 'lat', 'lon', 'address', 'city', 'phone', 'email', 'website', 'category', 'osm',
+    'operator', 'tags', 'placeId', 'mapsUrl'];
 
   function newProfile(base, source) {
     var now = Date.now();
@@ -1351,6 +1357,135 @@
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Google Places (tanpa jaringan): konversi hasil dan strategi pencarian per petak
+  // ---------------------------------------------------------------------------
+
+  var GOOGLE_TYPE_LABEL = {
+    corporate_office: 'Kantor perusahaan', wholesaler: 'Grosir / distributor', warehouse_store: 'Grosir / gudang',
+    storage: 'Gudang', moving_company: 'Jasa angkutan', courier_service: 'Kurir / ekspedisi',
+    general_contractor: 'Kontraktor', electrician: 'Jasa listrik', plumber: 'Jasa pipa', roofing_contractor: 'Kontraktor atap',
+    car_dealer: 'Dealer mobil', car_rental: 'Rental mobil', car_repair: 'Bengkel', truck_dealer: 'Dealer truk',
+    hardware_store: 'Toko besi / perkakas', home_improvement_store: 'Bahan bangunan', building_materials_store: 'Bahan bangunan',
+    furniture_store: 'Toko mebel', electronics_store: 'Toko elektronik', clothing_store: 'Toko pakaian',
+    grocery_store: 'Toko kelontong', supermarket: 'Supermarket', convenience_store: 'Minimarket',
+    hotel: 'Hotel', lodging: 'Penginapan', gas_station: 'SPBU', hospital: 'Rumah sakit', doctor: 'Klinik / dokter',
+    pharmacy: 'Apotek', restaurant: 'Restoran', cafe: 'Kafe', bakery: 'Toko roti', food: 'Makanan',
+    insurance_agency: 'Asuransi', real_estate_agency: 'Agen properti', travel_agency: 'Agen perjalanan',
+    accounting: 'Akuntan', lawyer: 'Kantor hukum', finance: 'Keuangan', consultant: 'Konsultan',
+    telecommunications_service_provider: 'Telekomunikasi', internet_service_provider: 'Penyedia internet',
+    farm: 'Pertanian', ranch: 'Peternakan', manufacturer: 'Pabrik', factory: 'Pabrik', industrial_area: 'Kawasan industri',
+    store: 'Toko'
+  };
+  var GOOGLE_EXCLUDE_TYPES = /^(bank|atm|local_government_office|city_hall|courthouse|police|post_office|school|primary_school|secondary_school|university|place_of_worship|mosque|church|hindu_temple|cemetery|bus_station|transit_station|train_station|airport)$/;
+
+  function googleCategory(types) {
+    types = types || [];
+    for (var i = 0; i < types.length; i++) if (GOOGLE_TYPE_LABEL[types[i]] && types[i] !== 'store') return GOOGLE_TYPE_LABEL[types[i]];
+    if (types.indexOf('store') >= 0) return 'Toko';
+    var t = types.filter(function (x) { return x !== 'point_of_interest' && x !== 'establishment'; })[0];
+    return t ? t.replace(/_/g, ' ').replace(/^./, function (c) { return c.toUpperCase(); }) : '';
+  }
+
+  function googlePlaceUrl(placeId, name) {
+    return 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(name || 'tempat') +
+      '&query_place_id=' + encodeURIComponent(placeId);
+  }
+
+  // p: { id, name, lat, lon, address, types, businessStatus, mapsUrl } (bentuk polos dari js/google.js)
+  function googlePlaceToCompany(p, includeOthers) {
+    if (!p || !p.id || !isFinite(p.lat) || !isFinite(p.lon)) return null;
+    if (p.businessStatus === 'CLOSED_PERMANENTLY') return null;
+    var types = p.types || [];
+    if (types.some(function (t) { return GOOGLE_EXCLUDE_TYPES.test(t); })) return null;
+    var name = normSpace(p.name);
+    if (!name) return null;
+    var entity = detectEntity(name);
+    if (!entity) {
+      if (!includeOthers) return null;
+      entity = 'Lainnya';
+    }
+    return {
+      id: 'g:' + p.id, placeId: p.id, source: 'google', name: name, entity: entity,
+      lat: round6(p.lat), lon: round6(p.lon), address: normSpace(p.address), city: '',
+      category: googleCategory(types), mapsUrl: p.mapsUrl || googlePlaceUrl(p.id, name),
+      closedTemporarily: p.businessStatus === 'CLOSED_TEMPORARILY'
+    };
+  }
+
+  function splitBBox(b, n) {
+    n = n || 2;
+    var out = [];
+    var dLat = (b[2] - b[0]) / n, dLon = (b[3] - b[1]) / n;
+    for (var i = 0; i < n; i++) {
+      for (var j = 0; j < n; j++) {
+        out.push([b[0] + i * dLat, b[1] + j * dLon, i === n - 1 ? b[2] : b[0] + (i + 1) * dLat, j === n - 1 ? b[3] : b[1] + (j + 1) * dLon]);
+      }
+    }
+    return out;
+  }
+
+  // Jarak terdekat dari titik ke kotak (0 bila titik di dalam kotak).
+  function bboxMinDistKm(lat, lon, b) {
+    var cLat = Math.max(b[0], Math.min(lat, b[2]));
+    var cLon = Math.max(b[1], Math.min(lon, b[3]));
+    return haversineKm(lat, lon, cLat, cLon);
+  }
+
+  function bboxSizeKm(b) {
+    return Math.max(haversineKm(b[0], b[1], b[2], b[1]), haversineKm(b[0], b[1], b[0], b[3]));
+  }
+
+  var GOOGLE_PAGE = 20;
+
+  // Pekerjaan pencarian: antrean petak per kata kunci, diproses dari yang paling dekat ke pusat.
+  // Mulai dari satu petak besar; petak yang hasilnya penuh (20) dipecah (16 bagian bila masih besar, 4 bila kecil)
+  // agar usaha yang tersembunyi ikut terambil. Daerah sepi selesai dengan sedikit pencarian.
+  function createGoogleJob(opts) {
+    var rootBox = opts.bbox || bboxAround(opts.lat, opts.lon, opts.radiusKm);
+    var center = opts.bbox ? [(rootBox[0] + rootBox[2]) / 2, (rootBox[1] + rootBox[3]) / 2] : [opts.lat, opts.lon];
+    var startKm = opts.startKm || Infinity;
+    var tiles = [rootBox];
+    while (tiles.length < 64 && bboxSizeKm(tiles[0]) > startKm) {
+      tiles = tiles.reduce(function (acc, t) { return acc.concat(splitBBox(t)); }, []);
+    }
+    var job = {
+      center: center, radiusKm: opts.bbox ? null : opts.radiusKm, minTileKm: opts.minTileKm || 0.4,
+      queue: [], found: new Map(), calls: 0, saturated: 0, done: false
+    };
+    (opts.terms || []).forEach(function (term) {
+      tiles.forEach(function (b) { pushTile(job, term, b, 0); });
+    });
+    return job;
+  }
+
+  function pushTile(job, term, b, depth) {
+    var d = bboxMinDistKm(job.center[0], job.center[1], b);
+    if (job.radiusKm && d > job.radiusKm) return;
+    job.queue.push({ term: term, b: b, d: d, size: bboxSizeKm(b), depth: depth });
+  }
+
+  // search(term, bbox) → Promise<{ places: [...], cached: bool }>. Hasil dari cache tidak dihitung ke anggaran.
+  async function runGoogleJob(job, search, budget, onProgress, shouldStop) {
+    var used = 0;
+    while (job.queue.length && used < budget) {
+      if (shouldStop && shouldStop()) break;
+      job.queue.sort(function (a, b) { return (a.d - b.d) || (a.size - b.size); });
+      var t = job.queue.shift();
+      var res = await search(t.term, t.b);
+      if (!res.cached) { used++; job.calls++; }
+      (res.places || []).forEach(function (p) { if (p && p.id && !job.found.has(p.id)) job.found.set(p.id, p); });
+      if ((res.places || []).length >= GOOGLE_PAGE) {
+        var parts = t.size > 8 ? 4 : 2;
+        if (t.size / parts >= job.minTileKm) splitBBox(t.b, parts).forEach(function (cb) { pushTile(job, t.term, cb, t.depth + 1); });
+        else job.saturated++;
+      }
+      if (onProgress) onProgress(job, used);
+    }
+    job.done = job.queue.length === 0;
+    return used;
+  }
+
   return {
     ZONE_IDS: ZONE_IDS, ZONE_LABEL: ZONE_LABEL, ENTITIES: ENTITIES, ENTITY_LABEL: ENTITY_LABEL,
     STATUSES: STATUSES, STATUS_LABEL: STATUS_LABEL, BRANCH_TYPES: BRANCH_TYPES, JABATAN: JABATAN, PRODUK: PRODUK,
@@ -1373,6 +1508,9 @@
     newProfile: newProfile, applyRecord: applyRecord, matchProfile: matchProfile, inTarget: inTarget,
     financeView: financeView, ratiosFor: ratiosFor, orgLevels: orgLevels, validateRadii: validateRadii,
     validateMaxRadius: validateMaxRadius, mergeSettings: mergeSettings,
-    safeUrl: safeUrl, FIN_KEYS: FIN_KEYS
+    safeUrl: safeUrl, FIN_KEYS: FIN_KEYS,
+    googleCategory: googleCategory, googlePlaceUrl: googlePlaceUrl, googlePlaceToCompany: googlePlaceToCompany,
+    splitBBox: splitBBox, bboxMinDistKm: bboxMinDistKm, bboxSizeKm: bboxSizeKm,
+    createGoogleJob: createGoogleJob, runGoogleJob: runGoogleJob, GOOGLE_PAGE: GOOGLE_PAGE
   };
 });
