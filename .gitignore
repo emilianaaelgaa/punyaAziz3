@@ -1,0 +1,8 @@
+node_modules/
+package-lock.json
+# Data prospek tidak boleh masuk repositori
+*.xlsx
+*.xls
+*.csv
+cadangan-prospek-*.json
+tests/screenshots/

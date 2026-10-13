@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Peta Prospek Kredit</title>
+<meta name="description" content="Peta kantor BNI se-Indonesia dengan deteksi otomatis PT, CV, dan badan usaha lain dalam zona 1, 5, dan 10 km untuk mencari prospek kredit.">
+<meta name="theme-color" content="#142235">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icon-192.png">
+<link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+<link rel="stylesheet" href="vendor/leaflet.markercluster/MarkerCluster.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 15V4M7.5 8.5 12 4l4.5 4.5"/><path d="M4 14v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/><path d="M4 14v5a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-5"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.2 1-1.2 1.8v.4"/><path d="M12 16.8v.2"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M19.5 4.5v4.2h-4.2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M15 5 8 12l7 7"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/><path d="M12 12 18.4 5.6"/></symbol>
+  <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3.5 9.5 12 4.5l8.5 5"/><path d="M5.5 10v7M9.8 10v7M14.2 10v7M18.5 10v7M3.5 19.5h17"/></symbol>
+  <symbol id="i-route" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2"/><circle cx="18" cy="6" r="2"/><path d="M8 18h7.5a3 3 0 0 0 0-6h-7a3 3 0 0 1 0-6H16"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-8.5 8.5"/><path d="M18 13.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5.5"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9.5 7V4.5h5V7M6.5 7l1 12.5h9L17.5 7"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-5.8-6.5-11a6.5 6.5 0 0 1 13 0c0 5.2-6.5 11-6.5 11Z"/><circle cx="12" cy="10" r="2.3"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></symbol>
+  <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+</svg>
+
+<div class="app" id="app" data-sheet="half">
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+        <circle cx="16" cy="16" r="14" class="bm-green"/>
+        <circle cx="16" cy="16" r="9" class="bm-orange"/>
+        <circle cx="16" cy="16" r="4.5" class="bm-red"/>
+        <circle cx="16" cy="16" r="1.6" class="bm-core"/>
+      </svg>
+      <div class="brand-text">
+        <h1>Peta Prospek Kredit</h1>
+        <p>Kantor BNI · deteksi PT/CV · zona <span id="brandZones">1–5–10</span> km</p>
+      </div>
+    </div>
+    <nav class="top-actions" aria-label="Menu utama">
+      <button class="btn ghost" id="btnLocate" type="button" title="Lokasi saya"><svg class="i"><use href="#i-locate"/></svg><span>Lokasi saya</span></button>
+      <button class="btn ghost" id="btnImport" type="button" title="Impor Excel"><svg class="i"><use href="#i-upload"/></svg><span>Impor Excel</span></button>
+      <button class="btn ghost" id="btnSettings" type="button" title="Pengaturan"><svg class="i"><use href="#i-sliders"/></svg><span>Pengaturan</span></button>
+      <button class="btn ghost" id="btnHelp" type="button" title="Bantuan"><svg class="i"><use href="#i-help"/></svg><span>Bantuan</span></button>
+    </nav>
+  </header>
+
+  <aside class="panel" id="panel">
+    <button class="sheet-handle" id="sheetHandle" type="button" aria-label="Ubah tinggi panel"><span></span></button>
+    <div class="tabs" role="tablist" aria-label="Daftar">
+      <button role="tab" type="button" id="tabbtn-cabang" aria-controls="tab-cabang" aria-selected="false" data-tab="cabang">Cabang <span class="tab-count" id="countBranches">0</span></button>
+      <button role="tab" type="button" id="tabbtn-deteksi" aria-controls="tab-deteksi" aria-selected="true" data-tab="deteksi">Deteksi <span class="tab-count" id="countResults">0</span></button>
+      <button role="tab" type="button" id="tabbtn-prospek" aria-controls="tab-prospek" aria-selected="false" data-tab="prospek">Prospek saya <span class="tab-count" id="countProspects">0</span></button>
+    </div>
+
+    <section class="tabpanel" id="tab-cabang" role="tabpanel" aria-labelledby="tabbtn-cabang" hidden>
+      <div class="panel-head">
+        <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="branchSearch" type="search" placeholder="Cari kantor, kota, atau alamat" autocomplete="off" aria-label="Cari kantor BNI"></label>
+        <div class="chips" id="branchTypeChips" aria-label="Jenis kantor"></div>
+        <p class="meta" id="branchMeta">Memuat data kantor BNI…</p>
+      </div>
+      <ol class="list" id="branchList"></ol>
+    </section>
+
+    <section class="tabpanel" id="tab-deteksi" role="tabpanel" aria-labelledby="tabbtn-deteksi">
+      <div class="panel-head">
+        <div class="context" id="detectContext">
+          <strong>Pilih kantor BNI</strong>
+          <span>Klik penanda kantor di peta atau cari di tab Cabang. PT, CV, dan badan usaha lain di sekitarnya akan terdeteksi otomatis.</span>
+        </div>
+        <div class="tally" id="zoneTally"></div>
+        <div class="chips" id="entityChips" aria-label="Badan usaha"></div>
+        <div class="toolbar">
+          <label class="search small"><svg class="i"><use href="#i-search"/></svg><input id="resultSearch" type="search" placeholder="Saring nama" autocomplete="off" aria-label="Saring hasil deteksi"></label>
+          <select id="resultSort" aria-label="Urutkan hasil">
+            <option value="dist">Terdekat</option>
+            <option value="name">Nama A–Z</option>
+            <option value="entity">Badan usaha</option>
+          </select>
+          <button class="btn icon" id="btnRefreshDetect" type="button" title="Unduh ulang data area ini" aria-label="Unduh ulang data area ini"><svg class="i"><use href="#i-refresh"/></svg></button>
+          <button class="btn icon" id="btnExportResults" type="button" title="Ekspor hasil ke Excel" aria-label="Ekspor hasil ke Excel"><svg class="i"><use href="#i-download"/></svg></button>
+        </div>
+      </div>
+      <div class="notice" id="detectNotice" hidden></div>
+      <ol class="list" id="resultList"></ol>
+      <div class="empty" id="resultEmpty" hidden></div>
+    </section>
+
+    <section class="tabpanel" id="tab-prospek" role="tabpanel" aria-labelledby="tabbtn-prospek" hidden>
+      <div class="panel-head">
+        <div class="pipeline" id="pipelineSummary"></div>
+        <div class="chips" id="statusChips" aria-label="Status"></div>
+        <div class="toolbar">
+          <label class="search small"><svg class="i"><use href="#i-search"/></svg><input id="prospectSearch" type="search" placeholder="Saring prospek" autocomplete="off" aria-label="Saring prospek"></label>
+          <select id="prospectSort" aria-label="Urutkan prospek">
+            <option value="updated">Terakhir diubah</option>
+            <option value="followup">Follow-up terdekat</option>
+            <option value="plafond">Plafond terbesar</option>
+            <option value="name">Nama A–Z</option>
+          </select>
+          <button class="btn icon" id="btnAddProspect2" type="button" title="Tambah prospek di peta" aria-label="Tambah prospek di peta"><svg class="i"><use href="#i-plus"/></svg></button>
+          <button class="btn icon" id="btnExportProspects" type="button" title="Ekspor prospek ke Excel" aria-label="Ekspor prospek ke Excel"><svg class="i"><use href="#i-download"/></svg></button>
+        </div>
+      </div>
+      <ol class="list" id="prospectList"></ol>
+      <div class="empty" id="prospectEmpty" hidden></div>
+    </section>
+  </aside>
+
+  <main class="mapwrap" id="mapwrap">
+    <div id="map" role="application" aria-label="Peta kantor BNI dan prospek"></div>
+    <div class="map-top">
+      <div class="active-chip" id="activeChip" hidden>
+        <svg class="i"><use href="#i-bank"/></svg>
+        <div class="active-text"><strong id="activeName"></strong><small id="activeMeta"></small></div>
+        <button class="btn icon small" id="btnClearBranch" type="button" aria-label="Lepas kantor aktif" title="Lepas kantor aktif"><svg class="i"><use href="#i-x"/></svg></button>
+      </div>
+      <div class="status" id="status" role="status" aria-live="polite" hidden><span class="spinner" id="statusSpinner"></span><span id="statusText"></span></div>
+    </div>
+    <div class="map-bottom">
+      <button class="btn primary" id="btnDetectArea" type="button"><svg class="i"><use href="#i-radar"/></svg><span id="btnDetectAreaText">Deteksi PT/CV di area ini</span></button>
+      <button class="btn raised" id="btnAddProspect" type="button" title="Tambah prospek di peta"><svg class="i"><use href="#i-plus"/></svg><span>Prospek</span></button>
+    </div>
+    <div class="pick-banner" id="pickBanner" hidden>
+      <svg class="i"><use href="#i-pin"/></svg><span id="pickText">Ketuk lokasi di peta</span>
+      <button class="btn small" id="btnPickCancel" type="button">Batal</button>
+    </div>
+  </main>
+
+  <aside class="dossier" id="dossier" hidden aria-label="Detail prospek">
+    <div class="dossier-bar">
+      <button class="btn icon" id="btnDossierClose" type="button" aria-label="Tutup detail"><svg class="i"><use href="#i-back"/></svg></button>
+      <span class="dossier-bar-title">Detail prospek</span>
+      <span class="save-state" id="saveState" aria-live="polite"></span>
+    </div>
+    <div class="dossier-body" id="dossierBody"></div>
+  </aside>
+</div>
+
+<dialog id="dlgSettings" aria-labelledby="dlgSettingsTitle">
+  <form method="dialog" class="dlg" id="formSettings" novalidate>
+    <header class="dlg-head">
+      <h2 id="dlgSettingsTitle">Pengaturan</h2>
+      <button class="btn icon" value="cancel" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="dlg-body">
+      <fieldset>
+        <legend>Zona jarak dari kantor BNI</legend>
+        <div class="grid3">
+          <label class="field zf-red"><span>Merah sampai (km)</span><input id="setR1" type="number" min="0.1" step="0.1" inputmode="decimal"></label>
+          <label class="field zf-orange"><span>Oranye sampai (km)</span><input id="setR2" type="number" min="0.1" step="0.1" inputmode="decimal"></label>
+          <label class="field zf-green"><span>Hijau sampai (km)</span><input id="setR3" type="number" min="0.1" step="0.1" inputmode="decimal"></label>
+        </div>
+        <p class="hint">Bawaan 1 / 5 / 10 km. Usaha yang lebih jauh dari batas hijau tidak ditampilkan.</p>
+      </fieldset>
+      <fieldset>
+        <legend>Target plafond kredit</legend>
+        <div class="grid2">
+          <label class="field"><span>Minimal (Rp miliar)</span><input id="setTMin" type="number" min="0" step="0.1" inputmode="decimal"></label>
+          <label class="field"><span>Maksimal (Rp miliar)</span><input id="setTMax" type="number" min="0" step="0.1" inputmode="decimal"></label>
+        </div>
+        <p class="hint">Prospek dengan estimasi plafond di rentang ini diberi tanda "Sesuai target".</p>
+      </fieldset>
+      <fieldset>
+        <legend>Deteksi</legend>
+        <label class="check"><input type="checkbox" id="setOthers"><span>Sertakan usaha tanpa label PT/CV: pabrik, gudang, grosir, dealer, hotel, SPBU, rumah sakit, kantor perusahaan</span></label>
+        <label class="check"><input type="checkbox" id="setAuto"><span>Deteksi otomatis saat peta digeser (tanpa kantor aktif, pada zoom dekat)</span></label>
+      </fieldset>
+      <fieldset>
+        <legend>Data kantor BNI</legend>
+        <label class="field"><span>Sumber data kantor</span>
+          <select id="setBranchSource">
+            <option value="both">OpenStreetMap + impor Excel</option>
+            <option value="import">Hanya dari impor Excel</option>
+          </select>
+        </label>
+        <p class="hint" id="setBranchInfo"></p>
+        <div class="btn-row"><button type="button" class="btn" id="btnRefreshBranches"><svg class="i"><use href="#i-refresh"/></svg>Perbarui dari OpenStreetMap</button></div>
+      </fieldset>
+      <fieldset>
+        <legend>Server dan tampilan</legend>
+        <div class="grid2">
+          <label class="field"><span>Server Overpass</span><select id="setOverpass"></select></label>
+          <label class="field"><span>Tema</span>
+            <select id="setTheme">
+              <option value="auto">Ikuti perangkat</option>
+              <option value="light">Terang</option>
+              <option value="dark">Gelap</option>
+            </select>
+          </label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Data di perangkat ini</legend>
+        <p class="hint" id="setStorageInfo">Prospek, catatan, dan cache peta tersimpan hanya di browser ini. Unduh cadangan secara berkala.</p>
+        <div class="btn-row">
+          <button type="button" class="btn" id="btnBackup"><svg class="i"><use href="#i-download"/></svg>Unduh cadangan</button>
+          <label class="btn file"><input type="file" id="fileRestore" accept=".json,application/json"><svg class="i"><use href="#i-upload"/></svg>Pulihkan cadangan</label>
+          <button type="button" class="btn" id="btnClearCache">Hapus cache deteksi</button>
+          <button type="button" class="btn danger" id="btnClearAll"><svg class="i"><use href="#i-trash"/></svg>Hapus semua data</button>
+        </div>
+      </fieldset>
+      <p class="error" id="setError" role="alert" hidden></p>
+    </div>
+    <footer class="dlg-foot">
+      <button class="btn" value="cancel">Batal</button>
+      <button class="btn primary" value="save" id="btnSaveSettings">Simpan</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="dlgImport" aria-labelledby="dlgImportTitle">
+  <form method="dialog" class="dlg" id="formImport" novalidate>
+    <header class="dlg-head">
+      <h2 id="dlgImportTitle">Impor dari Excel</h2>
+      <button class="btn icon" value="cancel" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="dlg-body">
+      <div class="seg" role="radiogroup" aria-label="Jenis data">
+        <label><input type="radio" name="impKind" value="prospek" checked><span>Daftar prospek</span></label>
+        <label><input type="radio" name="impKind" value="cabang"><span>Daftar kantor BNI</span></label>
+      </div>
+      <p class="hint" id="impHint"></p>
+      <div class="btn-row">
+        <label class="btn primary file"><input type="file" id="fileImport" accept=".xlsx,.xls,.csv"><svg class="i"><use href="#i-upload"/></svg>Pilih file</label>
+        <button type="button" class="btn" id="btnTemplate"><svg class="i"><use href="#i-download"/></svg>Unduh template</button>
+      </div>
+      <div class="import-preview" id="impPreview" hidden></div>
+      <label class="check" id="impGeoWrap" hidden><input type="checkbox" id="impGeocode" checked><span id="impGeoText"></span></label>
+      <div class="progress" id="impProgress" hidden><div class="bar"><i id="impBar"></i></div><span id="impProgressText"></span></div>
+      <p class="error" id="impError" role="alert" hidden></p>
+    </div>
+    <footer class="dlg-foot">
+      <button class="btn" value="cancel" id="btnImpClose">Tutup</button>
+      <button type="button" class="btn primary" id="btnImpRun" disabled>Impor</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="dlgHelp" aria-labelledby="dlgHelpTitle">
+  <form method="dialog" class="dlg wide">
+    <header class="dlg-head">
+      <h2 id="dlgHelpTitle">Cara pakai</h2>
+      <button class="btn icon" value="cancel" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="dlg-body prose">
+      <h3>Alur kerja</h3>
+      <ol>
+        <li>Pilih kantor BNI: klik penanda di peta atau cari di tab <b>Cabang</b>. Gunakan <b>Lokasi saya</b> untuk melihat kantor terdekat.</li>
+        <li>Aplikasi menggambar tiga zona dan mendeteksi PT, CV, UD, PD, Firma, dan koperasi di sekitarnya dari OpenStreetMap.</li>
+        <li>Buka satu perusahaan untuk melihat alamat, kontak, dan tautan riset (Google Maps, Street View, AHU, LinkedIn). Isi status, estimasi plafond, struktur organisasi, dan laporan keuangan; semuanya tersimpan otomatis ke <b>Prospek saya</b>.</li>
+        <li>Tambahkan prospek yang belum ada di peta dengan tombol <b>Prospek</b>, atau impor daftar dari Excel.</li>
+        <li>Ekspor hasil deteksi atau pipeline Anda ke Excel untuk laporan.</li>
+      </ol>
+      <h3>Zona</h3>
+      <p id="helpZones"></p>
+      <p>Saat sebuah kantor aktif, jarak dihitung dari kantor tersebut. Tanpa kantor aktif, jarak dihitung dari kantor BNI terdekat.</p>
+      <h3>Dari mana datanya?</h3>
+      <ul>
+        <li><b>Kantor BNI dan badan usaha</b>: OpenStreetMap (© kontributor OpenStreetMap, lisensi ODbL), diambil lewat Overpass API. Data ini diisi sukarelawan sehingga bisa belum lengkap atau kurang tepat, terutama untuk PT/CV kecil. Kantor BNI bisa ditimpa dengan daftar resmi melalui impor Excel.</li>
+        <li><b>Struktur organisasi dan laporan keuangan</b> tidak tersedia gratis untuk perusahaan tertutup. Sumber resminya AHU Online Kemenkum (berbayar per perusahaan) dan dokumen dari calon debitur sendiri. Hanya perusahaan Tbk yang laporan keuangannya publik (IDX). Isi data ini secara manual atau lewat impor.</li>
+        <li><b>Pencarian alamat</b> saat impor memakai OpenStreetMap Nominatim (maksimal 1 alamat per detik).</li>
+      </ul>
+      <h3>Privasi dan kepatuhan</h3>
+      <ul>
+        <li>Semua prospek, catatan, dan data pengurus tersimpan hanya di browser perangkat ini, tidak dikirim ke server mana pun. Unduh cadangan secara berkala di Pengaturan.</li>
+        <li>Jangan memasukkan data SLIK OJK. SLIK hanya boleh diakses untuk calon debitur yang sudah mengajukan kredit dengan persetujuannya, bukan untuk prospecting.</li>
+        <li>Nama pengurus dan pemegang saham termasuk data pribadi (UU 27/2022 tentang Pelindungan Data Pribadi). Simpan seperlunya dan ikuti kebijakan keamanan informasi BNI sebelum memakai aplikasi ini untuk data nasabah.</li>
+        <li>Aplikasi ini alat bantu pribadi, bukan aplikasi resmi BNI.</li>
+      </ul>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgConfirm" aria-labelledby="confirmTitle">
+  <form method="dialog" class="dlg narrow">
+    <div class="dlg-body">
+      <h2 id="confirmTitle"></h2>
+      <p id="confirmText"></p>
+    </div>
+    <footer class="dlg-foot">
+      <button class="btn" value="cancel">Batal</button>
+      <button class="btn danger" value="ok" id="confirmOk">Hapus</button>
+    </footer>
+  </form>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="vendor/leaflet/leaflet.js"></script>
+<script src="vendor/leaflet.markercluster/leaflet.markercluster.js"></script>
+<script src="js/util.js"></script>
+<script src="js/store.js"></script>
+<script src="js/osm.js"></script>
+<script src="js/excel.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

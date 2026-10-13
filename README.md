@@ -1,0 +1,103 @@
+# Peta Prospek Kredit
+
+Aplikasi web untuk RM yang mencari debitur kredit Rp1–25 miliar. Aplikasi ini menampilkan kantor BNI se-Indonesia di peta, menggambar tiga zona jarak di sekitar kantor, lalu mendeteksi PT, CV, dan badan usaha lain di zona tersebut. Setiap perusahaan bisa dibuka untuk melihat alamat dan kontak, mencatat status pipeline, menyusun struktur organisasi, dan mengisi laporan keuangan.
+
+Aplikasi ini alat bantu pribadi, bukan aplikasi resmi BNI.
+
+| Zona | Jarak dari kantor BNI (bawaan, bisa diubah) |
+|---|---|
+| Merah | 0–1 km |
+| Oranye | 1–5 km |
+| Hijau | 5–10 km |
+
+## Fitur
+
+- **Peta kantor BNI se-Indonesia** dari OpenStreetMap: KC, KCP, KK, dan Kanwil, dengan pencarian dan filter jenis kantor. Daftar resmi kantor bisa diimpor dari Excel.
+- **Deteksi otomatis badan usaha** di sekitar kantor yang dipilih: PT, CV, UD, PD, Firma, dan koperasi. PT Tbk dan BUMN/Persero tersembunyi secara bawaan karena biasanya di atas target plafond, tetapi bisa ditampilkan dengan satu klik. Opsional: pabrik, gudang, grosir, dealer, hotel, SPBU, dan rumah sakit yang tidak berlabel PT/CV.
+- **Mode area**: tanpa kantor aktif, geser peta ke kawasan mana pun dan zona dihitung dari kantor BNI terdekat.
+- **Detail perusahaan**: kategori usaha, alamat, telepon, situs web, kantor BNI terdekat, serta tautan riset ke Google Maps, Street View, Google, AHU Online, LinkedIn, dan IDX (untuk Tbk).
+- **Pipeline kredit**: status (baru → dihubungi → kunjungan → pengajuan → disetujui/ditolak), estimasi plafond dengan tanda "sesuai target", produk KMK/KI, jadwal follow-up, PIC, dan catatan.
+- **Struktur organisasi**: isi pemegang saham, komisaris, direksi, atau sekutu CV; bagan tersusun otomatis.
+- **Laporan keuangan** per tahun: penjualan, laba bersih, aset, liabilitas, dan ekuitas, dengan rasio otomatis (margin laba, ROA, DER, pertumbuhan omzet).
+- **Impor Excel/CSV**: daftar prospek (termasuk pengurus dan keuangan) dan daftar kantor resmi. Baris tanpa koordinat dicarikan lokasinya dari alamat.
+- **Ekspor Excel**: hasil deteksi per zona dan seluruh pipeline (lembar Prospek, Pengurus, Keuangan). File ekspor bisa diimpor kembali di perangkat lain.
+- **Bisa dipasang di HP** sebagai aplikasi (Add to Home Screen), tampilan menyesuaikan layar ponsel, dan mendukung mode gelap.
+
+## Cara membuka
+
+### Pilihan 1: GitHub Pages (disarankan untuk HP)
+
+1. Di GitHub buka **Settings → Pages**.
+2. Pada **Build and deployment** pilih **Deploy from a branch**, pilih branch yang berisi aplikasi ini dan folder **/ (root)**, lalu **Save**.
+3. Setelah 1–2 menit aplikasi tersedia di `https://emilianaaelgaa.github.io/punyaAziz3/`.
+4. Di HP, buka alamat tersebut di Chrome, lalu menu **⋮ → Tambahkan ke layar utama**.
+
+GitHub Pages gratis untuk repositori publik. Untuk repositori privat diperlukan paket GitHub berbayar. Kodenya aman dipublikasikan karena data prospek tidak pernah tersimpan di repositori, hanya di browser masing-masing perangkat.
+
+### Pilihan 2: langsung di laptop
+
+Unduh repositori (**Code → Download ZIP**), ekstrak, lalu buka `index.html` dengan Chrome atau Edge. Tidak perlu instalasi.
+
+Aplikasi membutuhkan internet untuk peta dan data OpenStreetMap. Jika jaringan kantor memblokir `overpass-api.de` atau `tile.openstreetmap.org`, gunakan data seluler atau pilih server Overpass lain di **Pengaturan**.
+
+## Cara pakai singkat
+
+1. Pertama kali dibuka, aplikasi mengunduh data kantor BNI se-Indonesia (sekali saja, ±30 detik; diperbarui otomatis tiap 30 hari).
+2. Pilih kantor: klik penanda di peta, cari di tab **Cabang**, atau tekan **Lokasi saya** untuk melihat kantor terdekat.
+3. Tab **Deteksi** menampilkan jumlah usaha per zona. Klik kotak zona atau chip badan usaha untuk menyaring.
+4. Klik perusahaan untuk membuka detail. Isian apa pun otomatis menyimpan perusahaan ke tab **Prospek saya**.
+5. Perusahaan yang belum ada di peta bisa ditambahkan dengan tombol **+ Prospek** lalu ketuk lokasinya, atau diimpor dari Excel.
+6. Unduh **cadangan** secara berkala dari **Pengaturan**, karena data hanya tersimpan di browser perangkat tersebut.
+
+## Sumber data dan keterbatasannya
+
+- **Kantor BNI dan badan usaha** berasal dari [OpenStreetMap](https://www.openstreetmap.org/copyright) (© kontributor OpenStreetMap, lisensi ODbL) melalui Overpass API. Data diisi sukarelawan sehingga tidak semua kantor dan perusahaan tercatat, terutama PT/CV kecil di luar kota besar. Tambahkan prospek secara manual atau impor dari Excel untuk melengkapi. Kantor BNI dapat diganti dengan daftar resmi melalui impor.
+- **Struktur organisasi dan laporan keuangan tidak tersedia gratis** untuk perusahaan tertutup, sehingga tidak bisa dideteksi otomatis. Sumber resmi data pengurus dan pemegang saham adalah AHU Online Kementerian Hukum (berbayar per perusahaan). Laporan keuangan diperoleh dari calon debitur. Hanya perusahaan Tbk yang laporan keuangannya publik di IDX. Aplikasi menyediakan formulir dan impor Excel untuk data ini.
+- **Pencarian koordinat dari alamat** memakai OpenStreetMap Nominatim, dibatasi 1 alamat per detik. Hasil yang hanya akurat sampai tingkat kelurahan/kota ditandai "lokasi perkiraan".
+- **Citra satelit** (opsi lapisan peta) dari Esri World Imagery.
+
+## Privasi dan kepatuhan
+
+- Semua prospek, catatan, data pengurus, dan laporan keuangan **tersimpan hanya di browser perangkat Anda** (IndexedDB). Tidak ada server aplikasi; yang dikirim ke internet hanya permintaan peta dan pencarian OpenStreetMap (koordinat area dan alamat saat impor).
+- **Jangan memasukkan data SLIK OJK.** SLIK hanya boleh diakses untuk calon debitur yang sudah mengajukan kredit dan dengan persetujuannya, bukan untuk prospecting.
+- Nama pengurus dan pemegang saham termasuk **data pribadi** menurut UU No. 27 Tahun 2022 tentang Pelindungan Data Pribadi. Simpan seperlunya, lindungi perangkat dengan kunci layar, dan ikuti kebijakan keamanan informasi BNI sebelum menggunakan aplikasi ini untuk data nasabah.
+- Jangan menyimpan file ekspor atau cadangan yang berisi data prospek di repositori ini.
+
+## Format Excel yang dikenali
+
+Unduh template dari menu **Impor Excel**. Judul kolom tidak harus persis; aplikasi mengenali variasi umum. Baris judul laporan di atas tabel juga dilewati otomatis.
+
+| Data | Contoh judul kolom |
+|---|---|
+| Nama (wajib) | Nama Perusahaan, Nama Debitur, Nama Usaha |
+| Badan usaha | Badan Usaha, Bentuk Usaha (PT, CV, UD, …) |
+| Lokasi | Latitude + Longitude, atau Koordinat (tempel dari Google Maps), atau Alamat + Kota |
+| Pipeline | Status, Plafond (`2500000000`, `2,5 M`, `750 jt`), Produk, Follow-up, PIC, Catatan, Nasabah BNI |
+| Pengurus | Direktur Utama, Direktur, Komisaris Utama, Komisaris, Pemegang Saham, Pemilik, Sekutu Aktif, Sekutu Pasif. Beberapa orang dipisah titik koma: `Budi (60%); Ani (40%)` |
+| Keuangan | Tahun, Penjualan/Omzet, Laba Bersih, Total Aset, Total Liabilitas, Ekuitas |
+
+Pengurus dan keuangan beberapa tahun juga bisa diisi di lembar terpisah bernama **Pengurus** dan **Keuangan** dengan kolom **Perusahaan** sebagai penghubung. Daftar kantor resmi memakai kolom Nama Cabang, Jenis (KC/KCP/KK), Alamat, Kota, Latitude, Longitude.
+
+## Struktur proyek
+
+```
+index.html            halaman aplikasi
+css/app.css           tampilan (terang/gelap, desktop/ponsel)
+js/util.js            logika murni: deteksi badan usaha, zona, parsing OSM & Excel, rasio keuangan
+js/store.js           penyimpanan lokal (IndexedDB)
+js/osm.js             Overpass API & Nominatim, cache per sel grid 0,1°
+js/excel.js           impor/ekspor Excel (SheetJS dimuat saat dibutuhkan)
+js/app.js             peta, daftar, detail prospek, dialog
+vendor/               Leaflet 1.9.4, Leaflet.markercluster 1.5.3, SheetJS 0.18.5 (beserta lisensinya)
+sw.js, manifest.webmanifest, assets/   dukungan pemasangan di HP
+tests/                tes unit (Node) dan tes browser (Playwright)
+```
+
+## Pengembangan
+
+```
+npm test              # tes unit fungsi murni (Node 18+)
+npm run test:e2e      # tes browser dengan jaringan tiruan (butuh Playwright + Chromium)
+```
+
+Tes browser tidak menghubungi internet; Overpass, Nominatim, dan tile peta diganti data tiruan di `tests/e2e.js`.

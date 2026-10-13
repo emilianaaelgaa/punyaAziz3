@@ -1,0 +1,13 @@
+{
+  "name": "peta-prospek-kredit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Peta kantor BNI dengan deteksi PT/CV di zona 1, 5, dan 10 km untuk prospek kredit.",
+  "scripts": {
+    "test": "node --test tests/util.test.js",
+    "test:e2e": "node tests/e2e.js"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}
