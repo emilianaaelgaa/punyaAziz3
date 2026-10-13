@@ -108,7 +108,7 @@
 
   async function exportResults(results, ctx, settings) {
     var XLSX = await ensureXLSX();
-    var header = ['No', 'Zona', 'Jarak (km)', 'Nama', 'Badan usaha', 'Kategori', 'Alamat', 'Telepon', 'Email', 'Situs web',
+    var header = ['No', 'Zona', 'Jarak (km)', 'Nama', 'Badan usaha', 'Kategori', 'Perkiraan sektor', 'Alamat', 'Telepon', 'Email', 'Situs web',
       'Acuan jarak', 'Kantor BNI terdekat', 'Jarak ke kantor terdekat (km)', 'Status', 'Estimasi plafond (Rp)',
       'Latitude', 'Longitude', 'Asal data', 'Tautan OpenStreetMap'];
     var rows = results.map(function (c, i) {
@@ -120,6 +120,7 @@
         'Nama': c.name,
         'Badan usaha': U.ENTITY_LABEL[c.entity] || c.entity,
         'Kategori': c.category || '',
+        'Perkiraan sektor': c.sector && U.SECTOR_BY_ID[c.sector] ? U.SECTOR_BY_ID[c.sector].label : '',
         'Alamat': c.address || '',
         'Telepon': c.phone || '',
         'Email': c.email || '',
@@ -137,7 +138,7 @@
     });
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, sheet(XLSX, header, rows,
-      [5, 10, 10, 38, 13, 20, 40, 16, 22, 26, 26, 28, 14, 20, 18, 11, 11, 14, 40]), 'Hasil Deteksi');
+      [5, 10, 10, 38, 13, 20, 28, 40, 16, 22, 26, 26, 28, 14, 20, 18, 11, 11, 14, 40]), 'Hasil Deteksi');
 
     var ents = U.ENTITIES.map(function (e) { return e.id; });
     var summary = [
@@ -163,7 +164,7 @@
 
   async function exportProspects(list, settings) {
     var XLSX = await ensureXLSX();
-    var header = ['ID', 'Nama', 'Badan usaha', 'Status', 'Estimasi plafond (Rp)', 'Sesuai target', 'Produk', 'Bidang usaha',
+    var header = ['ID', 'Nama', 'Badan usaha', 'Status', 'Estimasi plafond (Rp)', 'Sesuai target', 'Produk', 'Bidang usaha', 'Perkiraan sektor',
       'Tahun berdiri', 'PIC', 'Telepon', 'Email', 'Situs web', 'Alamat', 'Kota', 'Latitude', 'Longitude',
       'Kantor BNI terdekat', 'Jarak (km)', 'Zona', 'Nasabah BNI', 'Follow-up', 'Catatan', 'Sumber data', 'Asal data', 'Tautan peta', 'Terakhir diubah'];
     var rows = list.map(function (x) {
@@ -178,6 +179,7 @@
         'Sesuai target': target == null ? '' : (target ? 'Ya' : 'Tidak'),
         'Produk': p.produk || '',
         'Bidang usaha': p.bidang || '',
+        'Perkiraan sektor': U.SECTOR_BY_ID[U.classifySector(p, p)].label,
         'Tahun berdiri': p.tahunBerdiri || '',
         'PIC': p.pic || '',
         'Telepon': p.phone || '',
@@ -223,7 +225,7 @@
     });
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, sheet(XLSX, header, rows,
-      [22, 36, 12, 20, 18, 12, 18, 24, 12, 20, 16, 22, 24, 40, 16, 11, 11, 28, 10, 10, 11, 12, 40, 20, 14, 40, 17]), 'Prospek');
+      [22, 36, 12, 20, 18, 12, 18, 24, 28, 12, 20, 16, 22, 24, 40, 16, 11, 11, 28, 10, 10, 11, 12, 40, 20, 14, 40, 17]), 'Prospek');
     XLSX.utils.book_append_sheet(wb, sheet(XLSX, ['ID', 'Perusahaan', 'Nama', 'Jabatan', 'Saham (%)'], people,
       [22, 36, 28, 18, 10]), 'Pengurus');
     XLSX.utils.book_append_sheet(wb, sheet(XLSX, ['ID', 'Perusahaan', 'Tahun', 'Penjualan', 'Laba bersih', 'Total aset',

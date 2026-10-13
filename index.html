@@ -36,6 +36,11 @@
   <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></symbol>
   <symbol id="i-move" viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></symbol>
   <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-store" viewBox="0 0 24 24"><path d="M4 9.5 5.5 4.5h13L20 9.5"/><path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0"/><path d="M5.5 11.5v8h13v-8M10 19.5v-4.5h4v4.5"/></symbol>
+  <symbol id="i-factory" viewBox="0 0 24 24"><path d="M3.5 20.5V10l5 3V10l5 3V10l5 3V4.5h2v16Z"/><path d="M7 17h2M11.5 17h2M16 17h2"/></symbol>
+  <symbol id="i-anchor" viewBox="0 0 24 24"><circle cx="12" cy="5.5" r="2"/><path d="M12 7.5v13M8 11h8M5 14a7 7 0 0 0 14 0"/></symbol>
+  <symbol id="i-news" viewBox="0 0 24 24"><path d="M4.5 5.5h12v13a1.5 1.5 0 0 0 1.5 1.5H6a1.5 1.5 0 0 1-1.5-1.5Z"/><path d="M16.5 9h3v9.5a1.5 1.5 0 0 1-1.5 1.5"/><path d="M7.5 9h6M7.5 12.5h6M7.5 16h4"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20h16"/><path d="M7 16.5v-5M12 16.5v-9M17 16.5v-3"/></symbol>
 </svg>
 
 <div class="app" id="app" data-sheet="half">
@@ -65,7 +70,8 @@
     <div class="tabs" role="tablist" aria-label="Daftar">
       <button role="tab" type="button" id="tabbtn-cabang" aria-controls="tab-cabang" aria-selected="false" data-tab="cabang">Cabang <span class="tab-count" id="countBranches">0</span></button>
       <button role="tab" type="button" id="tabbtn-deteksi" aria-controls="tab-deteksi" aria-selected="true" data-tab="deteksi">Deteksi <span class="tab-count" id="countResults">0</span></button>
-      <button role="tab" type="button" id="tabbtn-prospek" aria-controls="tab-prospek" aria-selected="false" data-tab="prospek">Prospek saya <span class="tab-count" id="countProspects">0</span></button>
+      <button role="tab" type="button" id="tabbtn-peluang" aria-controls="tab-peluang" aria-selected="false" data-tab="peluang">Peluang</button>
+      <button role="tab" type="button" id="tabbtn-prospek" aria-controls="tab-prospek" aria-selected="false" data-tab="prospek">Prospek <span class="tab-count" id="countProspects">0</span></button>
     </div>
 
     <section class="tabpanel" id="tab-cabang" role="tabpanel" aria-labelledby="tabbtn-cabang" hidden>
@@ -103,6 +109,16 @@
       <div class="notice" id="detectNotice" hidden></div>
       <ol class="list" id="resultList"></ol>
       <div class="empty" id="resultEmpty" hidden></div>
+    </section>
+
+    <section class="tabpanel" id="tab-peluang" role="tabpanel" aria-labelledby="tabbtn-peluang" hidden>
+      <div class="panel-head">
+        <div class="context" id="peluangContext">
+          <strong>Peluang pasar</strong>
+          <span>Pilih kantor BNI atau deteksi suatu area dulu. Rekomendasi sektor, klaster usaha, dan pusat ekonomi disusun dari usaha yang terdeteksi.</span>
+        </div>
+      </div>
+      <div class="insight" id="peluangBody"></div>
     </section>
 
     <section class="tabpanel" id="tab-prospek" role="tabpanel" aria-labelledby="tabbtn-prospek" hidden>
@@ -291,6 +307,7 @@
       <ol>
         <li>Pilih kantor BNI: klik penanda di peta atau cari di tab <b>Cabang</b>. Gunakan <b>Lokasi saya</b> untuk melihat kantor terdekat.</li>
         <li>Aplikasi menggambar tiga zona dan mendeteksi PT, CV, UD, PD, Firma, dan koperasi di sekitarnya dari OpenStreetMap.</li>
+        <li>Buka tab <b>Peluang</b> untuk melihat sektor usaha yang paling potensial, klaster usaha, pasar/mal/kawasan industri terdekat, dan bank lain di sekitar kantor.</li>
         <li>Buka satu perusahaan untuk melihat alamat, kontak, dan tautan riset (Google Maps, Street View, AHU, LinkedIn). Isi status, estimasi plafond, struktur organisasi, dan laporan keuangan; semuanya tersimpan otomatis ke <b>Prospek saya</b>.</li>
         <li>Tambahkan prospek yang belum ada di peta dengan tombol <b>Prospek</b>: ketuk lokasinya, atau tempel koordinat/tautan dari Google Maps. Daftar dari Excel juga bisa diimpor.</li>
         <li>Ekspor hasil deteksi atau pipeline Anda ke Excel untuk laporan.</li>
@@ -298,6 +315,9 @@
       <h3>Zona</h3>
       <p id="helpZones"></p>
       <p>Saat sebuah kantor aktif, jarak dihitung dari kantor tersebut. Tanpa kantor aktif, jarak dihitung dari kantor BNI terdekat.</p>
+      <h3>Peluang pasar</h3>
+      <p>Rekomendasi disusun dari usaha yang terdeteksi di sekitar kantor. Bidang usaha ditebak dari nama dan kategorinya (mis. "distributor", "konstruksi"). Setiap sektor diberi skor: makin banyak usahanya, makin dekat ke kantor, dan makin cocok dengan kredit Rp1–25 miliar, makin tinggi skornya. Klaster adalah kumpulan minimal 4 usaha dalam radius 500 m. Pasar, mal, kawasan industri, pelabuhan, dan kantor bank lain diambil dari OpenStreetMap.</p>
+      <p>Aplikasi tidak menyimpan data tren. Untuk melihat sektor yang sedang tumbuh, buka tautan PDRB dari BPS dan berita investasi di bagian bawah tab. Untuk jam ramai pasar atau mal, buka tautan Google Maps-nya. Isi "Bidang usaha" saat kunjungan agar tebakan sektor makin tepat.</p>
       <h3>Dari mana datanya?</h3>
       <ul>
         <li><b>Kantor BNI dan badan usaha</b>: OpenStreetMap (© kontributor OpenStreetMap, lisensi ODbL), diambil lewat Overpass API. Data ini diisi sukarelawan sehingga bisa belum lengkap atau kurang tepat, terutama untuk PT/CV kecil. Kantor BNI bisa ditimpa dengan daftar resmi melalui impor Excel.</li>

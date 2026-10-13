@@ -186,6 +186,37 @@
     return result;
   }
 
+  // Pusat ekonomi (pasar, mal, kawasan industri, pergudangan, pelabuhan) dan kantor bank lain dalam bbox.
+  async function loadEconomy(bbox, opts) {
+    opts = opts || {};
+    var key = 'eco:' + bbox.map(function (n) { return n.toFixed(3); }).join(',');
+    var cached = await S.get(key);
+    if (cached && !opts.force && Date.now() - cached.t < CELL_TTL) return cached.data;
+    var json = await overpass(U.economyQuery(bbox), { timeoutMs: 120000, endpoint: opts.endpoint, signal: opts.signal });
+    var data = U.parseEconomy(json.elements || []);
+    await S.set(key, { t: Date.now(), data: data });
+    return data;
+  }
+
+  // Nama kota/kabupaten untuk sebuah titik (Nominatim reverse), disimpan agar tidak bertanya ulang.
+  async function cityName(lat, lon, opts) {
+    opts = opts || {};
+    var key = 'city:' + lat.toFixed(2) + ',' + lon.toFixed(2);
+    var cached = await S.get(key);
+    if (cached) return cached;
+    var wait = 1100 - (Date.now() - lastGeocodeAt);
+    if (wait > 0) await sleep(wait, opts.signal);
+    lastGeocodeAt = Date.now();
+    var url = 'https://nominatim.openstreetmap.org/reverse?' + new URLSearchParams({
+      lat: String(lat), lon: String(lon), format: 'jsonv2', zoom: '10', 'accept-language': 'id'
+    }).toString();
+    var res = await fetch(url, { signal: opts.signal, headers: { Accept: 'application/json' } });
+    if (!res.ok) throw new Error('Nama wilayah tidak ditemukan (kode ' + res.status + ').');
+    var name = U.cityFromNominatim(await res.json());
+    if (name) await S.set(key, name);
+    return name;
+  }
+
   async function clearCells() {
     memCells.clear();
     await S.deletePrefix('c:');
@@ -224,6 +255,6 @@
   root.PP.osm = {
     ENDPOINTS: ENDPOINTS, BRANCH_TTL: BRANCH_TTL, CELL_TTL: CELL_TTL,
     overpass: overpass, loadBranches: loadBranches, loadCompanies: loadCompanies,
-    clearCells: clearCells, geocode: geocode, sleep: sleep
+    clearCells: clearCells, geocode: geocode, sleep: sleep, loadEconomy: loadEconomy, cityName: cityName
   };
 })(self);

@@ -1,6 +1,6 @@
 # Peta Prospek Kredit
 
-Aplikasi web untuk RM yang mencari debitur kredit Rp1–25 miliar. Aplikasi ini menampilkan kantor BNI se-Indonesia di peta, menggambar tiga zona jarak di sekitar kantor, lalu mendeteksi PT, CV, dan badan usaha lain di zona tersebut. Setiap perusahaan bisa dibuka untuk melihat alamat dan kontak, mencatat status pipeline, menyusun struktur organisasi, dan mengisi laporan keuangan.
+Aplikasi web untuk RM yang mencari debitur kredit Rp1–25 miliar. Aplikasi ini menampilkan kantor BNI se-Indonesia di peta, menggambar tiga zona jarak di sekitar kantor, lalu mendeteksi PT, CV, dan badan usaha lain di zona tersebut. Setiap perusahaan bisa dibuka untuk melihat alamat dan kontak, mencatat status pipeline, menyusun struktur organisasi, dan mengisi laporan keuangan. Tab Peluang merangkum sektor usaha dan kawasan ekonomi yang paling potensial di sekitar kantor.
 
 Aplikasi ini alat bantu pribadi, bukan aplikasi resmi BNI.
 
@@ -15,6 +15,7 @@ Aplikasi ini alat bantu pribadi, bukan aplikasi resmi BNI.
 
 - **Peta kantor BNI se-Indonesia** dari OpenStreetMap: KC, KCP, KK, dan Kanwil, dengan pencarian dan filter jenis kantor. Daftar resmi kantor bisa diimpor dari Excel.
 - **Deteksi otomatis badan usaha** di sekitar kantor yang dipilih: PT, CV, UD, PD, Firma, dan koperasi. PT Tbk dan BUMN/Persero tersembunyi secara bawaan karena biasanya di atas target plafond, tetapi bisa ditampilkan dengan satu klik. Opsional: pabrik, gudang, grosir, dealer, hotel, SPBU, dan rumah sakit yang tidak berlabel PT/CV.
+- **Peluang pasar**: sektor usaha paling potensial di sekitar kantor beserta saran produk (KMK/KI), klaster usaha yang berdekatan, pasar, mal, kawasan industri, dan pelabuhan terdekat, jumlah kantor bank lain, serta tautan berita investasi dan data PDRB BPS untuk kota tersebut. Lihat [Peluang pasar](#peluang-pasar).
 - **Mode area**: tanpa kantor aktif, geser peta ke kawasan mana pun dan zona dihitung dari kantor BNI terdekat.
 - **Mode Google Maps (opsional, API key sendiri)**: deteksi PT/CV memakai data Google Maps yang jauh lebih lengkap, di atas peta Google. Telepon, situs web, rating, dan jam buka bisa dimuat per perusahaan. Ada batas pencarian per deteksi dan batas aman bulanan agar tidak melewati kuota gratis.
 - **Jembatan ke Google Maps (gratis)**: tautan "Cari di Google Maps" membuka pencarian PT, CV, UD, pabrik, gudang, dan distributor di sekitar kantor. Perusahaan yang ditemukan bisa dimasukkan dengan menempel koordinat atau tautan Google Maps-nya.
@@ -48,16 +49,37 @@ Aplikasi membutuhkan internet untuk peta dan data OpenStreetMap. Jika jaringan k
 1. Pertama kali dibuka, aplikasi mengunduh data kantor BNI se-Indonesia (sekali saja, ±30 detik; diperbarui otomatis tiap 30 hari).
 2. Pilih kantor: klik penanda di peta, cari di tab **Cabang**, atau tekan **Lokasi saya** untuk melihat kantor terdekat.
 3. Tab **Deteksi** menampilkan jumlah usaha per zona. Klik kotak zona atau chip badan usaha untuk menyaring.
-4. Klik perusahaan untuk membuka detail. Isian apa pun otomatis menyimpan perusahaan ke tab **Prospek saya**.
-5. Perusahaan yang belum ada di peta bisa ditambahkan dengan tombol **+ Prospek**, lalu ketuk lokasinya atau tempel koordinat/tautan dari Google Maps. Bisa juga diimpor dari Excel.
+4. Tab **Peluang** merangkum sektor usaha yang paling potensial, klaster usaha, pusat ekonomi, dan bank lain di sekitar kantor.
+5. Klik perusahaan untuk membuka detail. Isian apa pun otomatis menyimpan perusahaan ke tab **Prospek saya**.
+6. Perusahaan yang belum ada di peta bisa ditambahkan dengan tombol **+ Prospek**, lalu ketuk lokasinya atau tempel koordinat/tautan dari Google Maps. Bisa juga diimpor dari Excel.
    - Di aplikasi Google Maps HP: tekan lama lokasi perusahaan, salin koordinat yang muncul, lalu tempel.
    - Di Google Maps desktop: buka tempatnya, lalu salin alamat dari address bar browser (tautan yang memuat `!3d…!4d…` atau `@lat,lon`).
-6. Unduh **cadangan** secara berkala dari **Pengaturan**, karena data hanya tersimpan di browser perangkat tersebut.
+7. Unduh **cadangan** secara berkala dari **Pengaturan**, karena data hanya tersimpan di browser perangkat tersebut.
+
+## Peluang pasar
+
+Tab **Peluang** menjawab pertanyaan "sektor dan kawasan mana yang paling ramai di sekitar kantor ini?" dari usaha yang sudah terdeteksi. Selama tab ini terbuka, peta menampilkan klaster sebagai lingkaran putus-putus berlabel K1, K2, dan seterusnya, ikon pasar, mal, dan kawasan industri, serta titik kantor bank lain.
+
+| Bagian | Isi | Cara menghitung |
+|---|---|---|
+| Ringkasan rekomendasi | Sektor teratas, klaster terpadat, pusat ekonomi teramai, dan tingkat persaingan | Rangkuman dari bagian-bagian di bawah |
+| Sektor unggulan | Jumlah usaha per sektor, sebarannya per zona, dan saran produk kredit. Tombol di setiap sektor menyaring daftar di tab Deteksi ke sektor tersebut. | Bidang usaha ditebak dari isian "Bidang usaha", lalu nama, lalu kategori di peta. Setiap usaha diberi bobot zona (merah 3, oranye 2, hijau 1, luar zona 0,5), dijumlahkan per sektor, lalu dikali kecocokan sektor dengan kredit Rp1–25 miliar (distribusi dan pabrik 1,0; konstruksi, logistik, otomotif 0,9; kesehatan, pertanian, energi 0,8; hotel dan kuliner 0,7; properti, jasa, dan ritel 0,6) |
+| Klaster usaha | Kumpulan minimal 4 usaha dalam radius 500 m, beserta nama jalan dan sektor yang dominan | Dihitung dari titik usaha yang terdeteksi |
+| Pusat ekonomi terdekat | Pasar, mal, kawasan industri, pergudangan, dan pelabuhan, diurutkan dari yang paling banyak usaha terdeteksi dalam 1 km | Data OpenStreetMap. Tautan **Lihat jam ramai di Google Maps** membuka tempat tersebut di Google Maps. |
+| Bank lain di sekitar | Jumlah kantor bank lain per merek dalam radius zona oranye | Data OpenStreetMap. ATM dan kantor BNI tidak dihitung. |
+| Yang sedang ramai | Tautan Google News (investasi, pabrik baru, ekspansi usaha) dan pencarian PDRB per sektor di situs BPS untuk kota/kabupaten tersebut | Nama wilayah dicari lewat OpenStreetMap Nominatim |
+
+Keterbatasan:
+
+- Aplikasi tidak memiliki data tren pertumbuhan. "Ramai" di sini berarti padat usaha dan dekat pusat ekonomi saat ini. Pertumbuhan resmi per sektor ada di PDRB BPS, kabar terbaru ada di berita.
+- Sektor ditebak dari kata kunci, jadi bisa meleset. Nama seperti "PT Maju Jaya" tidak menyebut bidangnya; bila kategorinya di peta juga umum, usaha itu masuk "Bidang belum diketahui". Isi **Bidang usaha** di detail perusahaan setelah kunjungan agar rekomendasi makin tepat.
+- Kelengkapan rekomendasi mengikuti kelengkapan hasil deteksi. Hasil di mode Google Maps biasanya lebih lengkap daripada OpenStreetMap.
 
 ## Sumber data dan keterbatasannya
 
 - **Kantor BNI dan badan usaha** berasal dari [OpenStreetMap](https://www.openstreetmap.org/copyright) (© kontributor OpenStreetMap, lisensi ODbL) melalui Overpass API. Data diisi sukarelawan sehingga tidak semua kantor dan perusahaan tercatat, terutama PT/CV kecil di luar kota besar. Tambahkan prospek secara manual atau impor dari Excel untuk melengkapi. Kantor BNI dapat diganti dengan daftar resmi melalui impor.
 - **Struktur organisasi dan laporan keuangan tidak tersedia gratis** untuk perusahaan tertutup, sehingga tidak bisa dideteksi otomatis. Sumber resmi data pengurus dan pemegang saham adalah AHU Online Kementerian Hukum (berbayar per perusahaan). Laporan keuangan diperoleh dari calon debitur. Hanya perusahaan Tbk yang laporan keuangannya publik di IDX. Aplikasi menyediakan formulir dan impor Excel untuk data ini.
+- **Pasar, mal, kawasan industri, pelabuhan, dan kantor bank lain** di tab Peluang juga dari OpenStreetMap, sehingga kelengkapannya bergantung pada daerahnya.
 - **Google Maps** dipakai lewat tautan (gratis), atau sebagai sumber deteksi bila Anda memasang API key sendiri (lihat [Mode Google Maps](#mode-google-maps)).
 - **Pencarian koordinat dari alamat** memakai OpenStreetMap Nominatim, dibatasi 1 alamat per detik. Hasil yang hanya akurat sampai tingkat kelurahan/kota ditandai "lokasi perkiraan".
 - **Citra satelit** (opsi lapisan peta) dari Esri World Imagery.
@@ -99,6 +121,7 @@ Tarif dapat berubah; cek halaman harga Google Maps Platform. Pembatas di aplikas
 ### Aturan Google yang diikuti aplikasi
 
 - Data Google hanya ditampilkan di atas peta Google, lengkap dengan logo dan teks hak cipta Google. Saat kembali ke OpenStreetMap, hasil Google dihapus dari peta.
+- Ringkasan tab Peluang di mode Google dihitung dari hasil Google yang sedang tampil dan ikut hilang saat halaman ditutup.
 - Hasil pencarian Google tidak disimpan permanen dan **tidak bisa diekspor** ke Excel. Simpan perusahaan yang menarik ke **Prospek saya**: yang tersimpan adalah Place ID dan catatan Anda (status, plafond, pengurus, keuangan). Lokasinya disegarkan otomatis setelah 30 hari.
 
 ## Privasi dan kepatuhan
@@ -128,9 +151,9 @@ Pengurus dan keuangan beberapa tahun juga bisa diisi di lembar terpisah bernama 
 ```
 index.html            halaman aplikasi
 css/app.css           tampilan (terang/gelap, desktop/ponsel)
-js/util.js            logika murni: deteksi badan usaha, zona, parsing OSM & Excel, rasio keuangan
+js/util.js            logika murni: deteksi badan usaha, zona, sektor & klaster, parsing OSM & Excel, rasio keuangan
 js/store.js           penyimpanan lokal (IndexedDB)
-js/osm.js             Overpass API & Nominatim, cache per sel grid 0,1°
+js/osm.js             Overpass API & Nominatim (kantor, badan usaha, pusat ekonomi), cache per sel grid 0,1°
 js/google.js          mode Google: Maps JavaScript API (Places), Map Tiles API, penghitung pemakaian
 js/excel.js           impor/ekspor Excel (SheetJS dimuat saat dibutuhkan)
 js/app.js             peta, daftar, detail prospek, dialog

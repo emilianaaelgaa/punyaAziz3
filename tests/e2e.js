@@ -72,10 +72,35 @@ const companyElements = [
   node(2016, offset(UNGARAN, 9.5, 140), { name: 'CV Karya Teknik', craft: 'metal_construction' }),
   node(2017, offset(UNGARAN, 0.6, 250), { name: '<img src=x onerror=alert(1)> PT Uji XSS', office: 'company' })
 ];
+// Klaster grosir di Jl. Diponegoro (±1,8 km timur laut)
+const KLASTER = offset(UNGARAN, 1.8, 45);
+['CV Grosir Sembako Jaya', 'PT Distributor Pangan Nusantara', 'UD Grosir Plastik Makmur', 'CV Agen Gas Sentosa', 'PT Trading Sumber Rejeki', 'CV Supplier Alat Tulis']
+  .forEach((name, i) => companyElements.push(node(4000 + i, offset(KLASTER, 0.05 + i * 0.04, i * 60), {
+    name, office: 'company', 'addr:street': 'Jl. Diponegoro', 'addr:housenumber': String(10 + i), 'addr:city': 'Ungaran'
+  })));
 for (let i = 0; i < 30; i++) {
   const km = 0.5 + rnd() * 9.3, br = rnd() * 360;
   companyElements.push(node(3000 + i, offset(UNGARAN, km, br), { name: (i % 2 ? 'CV' : 'PT') + ' Usaha Uji ' + String(i).padStart(2, '0'), office: 'company' }));
 }
+
+const economyElements = [
+  node(6001, offset(UNGARAN, 1.2, 300), { amenity: 'marketplace', name: 'Pasar Bandarjo' }),
+  way(6002, offset(UNGARAN, 1.25, 300), { amenity: 'marketplace', name: 'Pasar Bandarjo' }),
+  way(6003, offset(UNGARAN, 2.6, 250), { landuse: 'industrial', name: 'Kawasan Industri Ungaran' }),
+  node(6004, offset(UNGARAN, 3.0, 20), { shop: 'mall', name: 'Ungaran Plaza' }),
+  way(6005, offset(UNGARAN, 6.0, 120), { landuse: 'industrial', name: 'Pergudangan Lingkar Ungaran' }),
+  way(6006, offset(UNGARAN, 4.0, 200), { landuse: 'industrial', name: 'PT Pabrik Sendiri' }),
+  node(6101, offset(UNGARAN, 0.3, 10), { amenity: 'bank', name: 'Bank BRI Unit Ungaran' }),
+  node(6102, offset(UNGARAN, 1.5, 100), { amenity: 'bank', name: 'BRI KCP Ungaran Timur' }),
+  node(6103, offset(UNGARAN, 3.5, 200), { amenity: 'bank', name: 'Bank BRI Unit Leyangan', brand: 'BRI' }),
+  node(6104, offset(UNGARAN, 0.8, 250), { amenity: 'bank', name: 'Bank Mandiri KCP Ungaran', brand: 'Mandiri' }),
+  node(6105, offset(UNGARAN, 4.2, 300), { amenity: 'bank', name: 'Bank Mandiri Bawen' }),
+  node(6106, offset(UNGARAN, 2.2, 30), { amenity: 'bank', name: 'BCA KCP Ungaran', brand: 'BCA' }),
+  node(6107, offset(UNGARAN, 1.1, 160), { amenity: 'bank', name: 'BPR Bank Ungaran' }),
+  node(6108, offset(UNGARAN, 0.2, 90), { amenity: 'bank', name: 'BNI KCP Ungaran' }),
+  node(6109, offset(UNGARAN, 0.4, 90), { amenity: 'bank', name: 'ATM BRI' }),
+  node(6110, offset(UNGARAN, 8.0, 0), { amenity: 'bank', name: 'Bank Jateng Cabang Ungaran' })
+];
 
 function inBox(el, b) {
   const lat = el.lat != null ? el.lat : el.center.lat;
@@ -200,6 +225,11 @@ async function mockNetwork(context) {
     if (q.includes('"amenity"="bank"') && q.includes('BNI')) {
       stats.branchQueries++;
       elements = branchElements;
+    } else if (q.includes('"amenity"="marketplace"')) {
+      stats.economyQueries = (stats.economyQueries || 0) + 1;
+      const m = q.match(/\((-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)\)/);
+      const b = m.slice(1).map(Number);
+      elements = economyElements.filter((el) => inBox(el, b));
     } else {
       stats.companyQueries++;
       const m = q.match(/\((-?[\d.]+),(-?[\d.]+),(-?[\d.]+),(-?[\d.]+)\)/);
@@ -211,6 +241,10 @@ async function mockNetwork(context) {
   });
   await context.route(/nominatim\.openstreetmap\.org/, (route) => {
     stats.nominatim++;
+    if (/\/reverse/.test(route.request().url())) {
+      return route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' },
+        body: JSON.stringify({ address: { county: 'Kabupaten Semarang', state: 'Jawa Tengah' } }) });
+    }
     const q = new URL(route.request().url()).searchParams.get('q') || '';
     const hit = /Gatot Subroto/i.test(q) ? [{ lat: '-7.1300', lon: '110.4100', place_rank: 26, display_name: 'Jl. Gatot Subroto, Ungaran' }] : [];
     route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(hit) });
@@ -596,8 +630,52 @@ async function run() {
     await page.waitForFunction(() => !document.getElementById('dlgSettings').open, null, { timeout: 5000 });
   });
 
+  await step('Peluang pasar: sektor, klaster, pusat ekonomi, bank, berita', async () => {
+    await page.click('#tabbtn-cabang');
+    await page.fill('#branchSearch', 'ungaran');
+    await page.click('#branchList [data-branch="osm:n1001"]');
+    await page.waitForFunction(() => window.__PP_STATE__.resultsCtx && !window.__PP_STATE__.resultsLoading && window.__PP_STATE__.results.length, null, { timeout: 15000 });
+    await page.click('#tabbtn-peluang');
+    await page.waitForSelector('#peluangBody .ins-summary');
+    await page.waitForFunction(() => /Pasar Bandarjo/.test(document.querySelector('#peluangBody').textContent), null, { timeout: 15000 });
+    const body = await page.locator('#peluangBody').innerText();
+    assert.match(body, /Sektor paling potensial: Perdagangan besar & distribusi/);
+    assert.match(body, /Klaster terpadat: \d+ usaha dalam radius 500 m di sekitar Jl\. Diponegoro/);
+    assert.match(body, /Pusat ekonomi teramai/);
+    assert.match(body, /Kawasan Industri Ungaran/);
+    assert.match(body, /Pergudangan Lingkar Ungaran/);
+    assert.doesNotMatch(body, /PT Pabrik Sendiri/, 'kompleks pabrik bernama PT bukan pusat ekonomi');
+    // Radius zona sudah diubah ke 2/6/10 km pada langkah pengaturan sebelumnya
+    assert.match(body, /Persaingan: 7 kantor bank lain dalam 6 km \(terbanyak BRI, 3\)/);
+    assert.equal(stats.economyQueries, 1);
+    await page.waitForFunction(() => /Kabupaten Semarang/.test(document.querySelector('#peluangBody').textContent), null, { timeout: 10000 });
+    const news = await page.locator('#peluangBody .ins-links a').first().getAttribute('href');
+    assert.match(news, /^https:\/\/news\.google\.com\/search\?q=/);
+    assert.match(decodeURIComponent(news), /"Kabupaten Semarang"/);
+    assert.ok(await page.locator('.center-icon').count() >= 3, 'pusat ekonomi digambar di peta');
+    assert.ok(await page.locator('.cluster-label').count() >= 1, 'klaster digambar di peta');
+    await page.screenshot({ path: path.join(SHOT_DIR, '11-peluang.png') });
+    // Klik sektor → tab Deteksi tersaring
+    await page.click('#peluangBody [data-sector="dagang"]');
+    assert.equal(await page.isVisible('#tab-deteksi'), true);
+    assert.match(await page.locator('#entityChips .sector-chip').innerText(), /Perdagangan besar/);
+    const sectors = await page.evaluate(() => {
+      const ids = Array.from(document.querySelectorAll('#resultList .item')).map((el) => el.getAttribute('data-id'));
+      return ids.map((id) => window.__PP_STATE__.results.find((c) => c.id === id).sector);
+    });
+    assert.ok(sectors.length >= 6 && sectors.every((x) => x === 'dagang'), 'hanya sektor dagang: ' + sectors.join(','));
+    await page.click('#entityChips .sector-chip');
+    assert.equal(await page.locator('#entityChips .sector-chip').count(), 0);
+    // Peta kembali bersih saat meninggalkan tab Peluang
+    assert.equal(await page.locator('.center-icon').count(), 0);
+    // Kembali ke tab Peluang memakai cache (tanpa query baru)
+    await page.click('#tabbtn-peluang');
+    await page.waitForSelector('#peluangBody .ins-summary');
+    assert.equal(stats.economyQueries, 1);
+  });
+
   // Ponsel
-  const mobile =await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'id-ID' });
+  const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'id-ID' });
   await mockNetwork(mobile);
   const m = await mobile.newPage();
   m.on('pageerror', (e) => errors.push('mobile pageerror: ' + e.message));
@@ -622,6 +700,12 @@ async function run() {
     assert.ok(box.width >= 389 && box.height >= 800, 'detail layar penuh');
     await m.screenshot({ path: path.join(SHOT_DIR, '07-ponsel-detail.png') });
     await m.click('#btnDossierClose');
+    await m.click('#tabbtn-peluang');
+    await m.waitForSelector('#peluangBody .ins-summary');
+    const ov = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert.ok(ov <= 0, 'overflow horizontal di tab Peluang ' + ov);
+    await m.screenshot({ path: path.join(SHOT_DIR, '12-ponsel-peluang.png') });
+    await m.click('#tabbtn-deteksi');
     await m.click('#sheetHandle');
     assert.equal(await m.evaluate(() => document.getElementById('app').dataset.sheet), 'full');
   });
@@ -765,6 +849,19 @@ async function run() {
     assert.equal(await gp.evaluate(() => window.__gcalls.search), mid);
     const st = await gstate();
     assert.ok(st.results.includes('PT Jauh Google|out|google'), 'hasil sebelumnya dipakai lagi');
+  });
+
+  await step('Google: tab Peluang memakai hasil Google tanpa pencarian tambahan', async () => {
+    const before = await gp.evaluate(() => window.__gcalls.search);
+    await gp.click('#tabbtn-peluang');
+    await gp.waitForSelector('#peluangBody .ins-summary');
+    assert.match(await gp.locator('#peluangContext').innerText(), /\(Google Maps\)/);
+    await gp.waitForFunction(() => /Pasar Bandarjo/.test(document.querySelector('#peluangBody').textContent), null, { timeout: 15000 });
+    assert.match(await gp.locator('#peluangBody').innerText(), /sektor unggulan/i);
+    assert.ok(await gp.locator('.center-icon').count() >= 1, 'pusat ekonomi OSM digambar di atas peta Google');
+    assert.equal(await gp.isVisible('.legend-credit'), true, 'atribusi OSM tetap tampil');
+    assert.equal(await gp.evaluate(() => window.__gcalls.search), before, 'tab Peluang tidak memakai kuota Google');
+    await gp.click('#tabbtn-deteksi');
   });
 
   await step('Google: batas aman bulanan menghentikan pencarian', async () => {

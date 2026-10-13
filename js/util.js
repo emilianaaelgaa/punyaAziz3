@@ -1358,6 +1358,267 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Peluang pasar: sektor, klaster, pusat ekonomi, bank pesaing
+  // ---------------------------------------------------------------------------
+
+  // Sektor sederhana untuk RM (mengikuti lapangan usaha); fit = kecocokan dengan kredit Rp1–25 M.
+  var SECTORS = [
+    { id: 'dagang', label: 'Perdagangan besar & distribusi', fit: 1.0,
+      produk: 'KMK untuk stok barang dan piutang dagang; perputarannya cepat.',
+      re: /grosir|distribut|perdagangan|trading|niaga|supplier|pemasok|agen tunggal|wholesale|sembako|import|ekspor|export/i },
+    { id: 'industri', label: 'Industri pengolahan / pabrik', fit: 1.0,
+      produk: 'KI untuk mesin dan bangunan pabrik, KMK untuk bahan baku.',
+      re: /pabrik|industri|manufa|produksi|garmen|garment|tekstil|textile|konveksi|percetakan|printing|mebel|furnitur|furniture|plastik|plastic|baja|steel|logam|metal|kimia|chemical|pengolahan|keramik|kertas|paper|packaging|kemasan|food industr|works/i },
+    { id: 'konstruksi', label: 'Konstruksi & bahan bangunan', fit: 0.9,
+      produk: 'KMK proyek dan bank garansi; KI alat berat.',
+      re: /kontraktor|konstruksi|construction|bahan bangunan|material|toko besi|perkakas|hardware|beton|semen|aspal|bangunan|building|karya teknik|engineering|teknik/i },
+    { id: 'logistik', label: 'Transportasi, logistik & pergudangan', fit: 0.9,
+      produk: 'KI armada dan gudang, KMK operasional.',
+      re: /logisti|ekspedisi|kurir|courier|angkutan|transport|gudang|warehouse|cargo|kargo|pelayaran|shipping|forwarding|trucking|travel/i },
+    { id: 'otomotif', label: 'Otomotif (dealer & bengkel)', fit: 0.9,
+      produk: 'KMK persediaan kendaraan, KI showroom dan bengkel.',
+      re: /dealer|bengkel|suku cadang|spare ?part|otomotif|motor|mobil|truk|\bban\b|tyre|auto/i },
+    { id: 'kesehatan', label: 'Kesehatan (RS, klinik, apotek)', fit: 0.8,
+      produk: 'KI alat kesehatan dan gedung, KMK operasional.',
+      re: /rumah sakit|hospital|klinik|clinic|apotek|farma|pharma|kesehatan|medika|medical|laborator|dokter/i },
+    { id: 'pertanian', label: 'Pertanian, perkebunan & perikanan', fit: 0.8,
+      produk: 'KMK musiman (tanam/panen), KI sarana produksi.',
+      re: /pertanian|perkebunan|perikanan|peternakan|saprotan|\btani\b|kebun|ternak|ikan|benih|pupuk|agro|feed|pakan|beras|padi/i },
+    { id: 'energi', label: 'Energi & SPBU', fit: 0.8,
+      produk: 'KMK pembelian BBM/stok, KI fasilitas.',
+      re: /spbu|energi|energy|\bbbm\b|\bgas\b|listrik|solar|petro|tambang|mining|batubara|coal/i },
+    { id: 'akomodasi', label: 'Hotel, restoran & kuliner', fit: 0.7,
+      produk: 'KI renovasi/ekspansi, KMK operasional.',
+      re: /hotel|motel|penginapan|resort|restoran|restaurant|kafe|cafe|kuliner|katering|catering|bakery|roti|makanan|food|kopi|coffee/i },
+    { id: 'properti', label: 'Properti & real estat', fit: 0.6,
+      produk: 'Kredit konstruksi atau KI, sesuai kebijakan sektor properti.',
+      re: /properti|property|real estat|realty|developer|perumahan|residen|griya|\bland\b|agen properti|pengelola properti/i },
+    { id: 'jasa', label: 'Jasa perusahaan & profesional', fit: 0.6,
+      produk: 'KMK operasional, KI kantor dan peralatan.',
+      re: /konsultan|consult|jasa|service|teknologi informasi|\bit\b|software|digital|telekomunikasi|asuransi|insurance|akuntan|hukum|notaris|outsourc|security|keamanan|advertising|media/i },
+    { id: 'ritel', label: 'Ritel & toko', fit: 0.6,
+      produk: 'KMK stok; cek dulu skala usaha untuk plafond ≥ Rp1 M.',
+      re: /toko|minimarket|supermarket|retail|ritel|elektronik|pakaian|fashion|butik|swalayan|mart\b/i },
+    { id: 'lainnya', label: 'Bidang belum diketahui', fit: 0.4,
+      produk: 'Kunjungi atau cek AHU/Google untuk mengetahui bidang usahanya.', re: null }
+  ];
+  var SECTOR_BY_ID = {};
+  SECTORS.forEach(function (x) { SECTOR_BY_ID[x.id] = x; });
+
+  // Kategori umum yang tidak menjelaskan bidang usaha.
+  var GENERIC_CATEGORY = /^(kantor perusahaan|kantor|bangunan|bangunan komersial|gedung kantor|fasilitas|lainnya|toko)$/i;
+
+  // Perkiraan sektor: bidang usaha isian RM → nama perusahaan → kategori peta.
+  function classifySector(c, profile) {
+    var tries = [profile && profile.bidang, c && c.name, c && c.category && !GENERIC_CATEGORY.test(c.category) ? c.category : ''];
+    for (var t = 0; t < tries.length; t++) {
+      var text = tries[t];
+      if (!text) continue;
+      for (var i = 0; i < SECTORS.length; i++) {
+        if (SECTORS[i].re && SECTORS[i].re.test(text)) return SECTORS[i].id;
+      }
+    }
+    if (c && c.category && /^toko$/i.test(c.category)) return 'ritel';
+    return 'lainnya';
+  }
+
+  var ZONE_WEIGHT = { red: 3, orange: 2, green: 1, out: 0.5 };
+
+  // Statistik per sektor dari hasil deteksi (setiap item punya .sector dan .zone). Diurutkan menurut skor.
+  function sectorStats(items) {
+    var by = {};
+    (items || []).forEach(function (c) {
+      var id = c.sector || 'lainnya';
+      var st = by[id] || (by[id] = { id: id, label: SECTOR_BY_ID[id].label, produk: SECTOR_BY_ID[id].produk, fit: SECTOR_BY_ID[id].fit,
+        count: 0, zones: { red: 0, orange: 0, green: 0, out: 0 }, near: 0, score: 0 });
+      st.count++;
+      st.zones[c.zone] = (st.zones[c.zone] || 0) + 1;
+      if (c.zone === 'red' || c.zone === 'orange') st.near++;
+      st.score += (ZONE_WEIGHT[c.zone] || 0.5) * st.fit;
+    });
+    var total = (items || []).length || 1;
+    return Object.keys(by).map(function (k) {
+      var st = by[k];
+      st.share = st.count / total;
+      st.score = Math.round(st.score * 10) / 10;
+      return st;
+    }).sort(function (a, b) {
+      if ((a.id === 'lainnya') !== (b.id === 'lainnya')) return a.id === 'lainnya' ? 1 : -1;
+      return (b.score - a.score) || (b.count - a.count);
+    });
+  }
+
+  // Klaster: kelompok usaha yang berdekatan (radius radiusKm), diambil serakah dari yang paling padat.
+  function findClusters(items, opts) {
+    opts = opts || {};
+    var r = opts.radiusKm || 0.5, minSize = opts.minSize || 4, max = opts.max || 5;
+    var pts = (items || []).filter(function (c) { return c && isFinite(c.lat) && isFinite(c.lon); });
+    var cell = r / 110;
+    var grid = {};
+    pts.forEach(function (p, idx) {
+      var k = Math.floor(p.lat / cell) + '_' + Math.floor(p.lon / cell);
+      (grid[k] = grid[k] || []).push(idx);
+    });
+    function neighbors(idx, used) {
+      var p = pts[idx];
+      var gi = Math.floor(p.lat / cell), gj = Math.floor(p.lon / cell);
+      var out = [];
+      for (var di = -1; di <= 1; di++) {
+        for (var dj = -1; dj <= 1; dj++) {
+          var arr = grid[(gi + di) + '_' + (gj + dj)];
+          if (!arr) continue;
+          for (var a = 0; a < arr.length; a++) {
+            var j = arr[a];
+            if (j === idx || used[j]) continue;
+            if (haversineKm(p.lat, p.lon, pts[j].lat, pts[j].lon) <= r) out.push(j);
+          }
+        }
+      }
+      return out;
+    }
+    var used = {};
+    var clusters = [];
+    while (clusters.length < max) {
+      var bestIdx = -1, best = [];
+      for (var i = 0; i < pts.length; i++) {
+        if (used[i]) continue;
+        var nb = neighbors(i, used);
+        if (nb.length > best.length) { best = nb; bestIdx = i; }
+      }
+      if (bestIdx < 0 || best.length + 1 < minSize) break;
+      var members = [bestIdx].concat(best).map(function (j) { used[j] = true; return pts[j]; });
+      var lat = 0, lon = 0, sectors = {}, entities = {};
+      members.forEach(function (m) {
+        lat += m.lat; lon += m.lon;
+        if (m.sector) sectors[m.sector] = (sectors[m.sector] || 0) + 1;
+        entities[m.entity] = (entities[m.entity] || 0) + 1;
+      });
+      var dom = Object.keys(sectors).filter(function (k) { return k !== 'lainnya'; })
+        .sort(function (a, b) { return sectors[b] - sectors[a]; })[0] || null;
+      clusters.push({
+        lat: round6(lat / members.length), lon: round6(lon / members.length), radiusKm: r,
+        members: members, size: members.length, sector: dom, sectorCount: dom ? sectors[dom] : 0, entities: entities
+      });
+    }
+    return clusters;
+  }
+
+  var CENTER_TYPES = {
+    pasar: 'Pasar', mal: 'Mal / pusat belanja', industri: 'Kawasan industri', gudang: 'Kawasan pergudangan', pelabuhan: 'Pelabuhan'
+  };
+
+  function centerType(t, name) {
+    if (t.amenity === 'marketplace') return 'pasar';
+    if (t.shop === 'mall' || t.shop === 'department_store') return name ? 'mal' : null;
+    if (t.landuse === 'port' || t.industrial === 'port' || t.harbour === 'yes') return name ? 'pelabuhan' : null;
+    if ((t.landuse === 'industrial' || t.industrial === 'estate') && name) {
+      if (detectEntity(name)) return null;
+      if (/gudang|pergudangan|warehouse|logisti|depo/i.test(name)) return 'gudang';
+      if (t.industrial === 'estate' || /kawasan|industri|industrial|estate|\bpark\b|zona|sentra|\blik\b|\bkik\b|\bkit\b|\bkiw\b/i.test(name)) return 'industri';
+    }
+    return null;
+  }
+
+  var BANK_BRANDS = [
+    ['BNI', /(^|[^a-z])bni([^a-z]|$)|negara indonesia/i],
+    ['BSI', /(^|[^a-z])bsi([^a-z]|$)|syariah indonesia/i],
+    ['BRI', /(^|[^a-z])bri([^a-z]|$)|rakyat indonesia/i],
+    ['Mandiri', /mandiri/i],
+    ['BCA', /(^|[^a-z])bca([^a-z]|$)|central asia/i],
+    ['BTN', /(^|[^a-z])btn([^a-z]|$)|tabungan negara/i],
+    ['CIMB Niaga', /cimb/i],
+    ['Danamon', /danamon/i],
+    ['Permata', /permata/i],
+    ['Maybank', /maybank/i],
+    ['OCBC', /ocbc|nisp/i],
+    ['Panin', /panin/i],
+    ['BPR', /(^|[^a-z])bprs?([^a-z]|$)|perkreditan rakyat|perekonomian rakyat/i],
+    ['BPD', /bank (jateng|jatim|dki|bjb|jabar|sumut|nagari|riau|kalbar|kalsel|kalteng|kaltim|kaltimtara|sulsel|sulselbar|sulut|sultra|sulteng|ntb|ntt|papua|maluku|bengkulu|lampung|sumsel|babel|jambi|aceh|bali|bpd)|(^|[^a-z])(bjb|bpd)([^a-z]|$)/i]
+  ];
+
+  function bankBrand(t) {
+    var name = t.name || '';
+    if (/(^|[^a-z])atm([^a-z]|$)/i.test(name)) return null;
+    var text = [t.brand, name, t.operator].filter(Boolean).join(' | ');
+    for (var i = 0; i < BANK_BRANDS.length; i++) if (BANK_BRANDS[i][1].test(text)) return BANK_BRANDS[i][0];
+    return 'Bank lain';
+  }
+
+  function economyQuery(bbox) {
+    var b = bboxStr(bbox);
+    return '[out:json][timeout:90];(' +
+      'nwr["amenity"="marketplace"](' + b + ');' +
+      'nwr["shop"~"^(mall|department_store)$"]["name"](' + b + ');' +
+      'nwr["landuse"~"^(industrial|port)$"]["name"](' + b + ');' +
+      'nwr["industrial"~"^(estate|port)$"]["name"](' + b + ');' +
+      'nwr["harbour"="yes"]["name"](' + b + ');' +
+      'nwr["amenity"="bank"](' + b + ');' +
+      ');out center tags;';
+  }
+
+  function parseEconomy(elements) {
+    var centers = [], banks = [];
+    (elements || []).forEach(function (el) {
+      var t = el.tags || {};
+      var ll = elementLatLon(el);
+      if (!ll) return;
+      var id = 'osm:' + el.type.charAt(0) + el.id;
+      if (t.amenity === 'bank') {
+        var brand = bankBrand(t);
+        if (!brand || brand === 'BNI') return;
+        banks.push({ id: id, brand: brand, name: normSpace(t.name) || brand, lat: round6(ll[0]), lon: round6(ll[1]) });
+        return;
+      }
+      var name = normSpace(t.name || t['name:id'] || '');
+      var type = centerType(t, name);
+      if (!type) return;
+      centers.push({ id: id, osm: el.type + '/' + el.id, type: type, typeLabel: CENTER_TYPES[type],
+        name: name || CENTER_TYPES[type] + ' (tanpa nama)', lat: round6(ll[0]), lon: round6(ll[1]), address: formatAddress(t) });
+    });
+    // Satu tempat bisa tercatat sebagai titik dan area; gabungkan nama sama yang berdekatan.
+    var seen = [];
+    centers = centers.filter(function (c) {
+      var dup = seen.some(function (s) { return s.type === c.type && normKey(s.name) === normKey(c.name) && haversineKm(s.lat, s.lon, c.lat, c.lon) < 0.6; });
+      if (!dup) seen.push(c);
+      return !dup;
+    });
+    return { centers: centers, banks: banks };
+  }
+
+  // Bank pesaing di sekitar titik acuan: jumlah per zona dan per merek (dalam batas oranye).
+  function bankCompetition(banks, lat, lon, radii) {
+    var out = { zones: { red: 0, orange: 0, green: 0 }, withinOrange: 0, brands: {} };
+    (banks || []).forEach(function (b) {
+      var d = haversineKm(lat, lon, b.lat, b.lon);
+      var z = zoneFor(d, radii);
+      if (z === 'out') return;
+      out.zones[z]++;
+      if (z === 'red' || z === 'orange') {
+        out.withinOrange++;
+        out.brands[b.brand] = (out.brands[b.brand] || 0) + 1;
+      }
+    });
+    out.brandList = Object.keys(out.brands).map(function (k) { return { brand: k, count: out.brands[k] }; })
+      .sort(function (a, b) { return b.count - a.count; });
+    return out;
+  }
+
+  // Ambil nama kota/kabupaten dari jawaban reverse geocoding Nominatim.
+  function cityFromNominatim(j) {
+    var a = (j && j.address) || {};
+    return normSpace(a.city || a.county || a.regency || a.town || a.municipality || a.state_district || a.state || '');
+  }
+
+  function newsUrl(place) {
+    var q = '"' + place + '" (investasi OR "pabrik baru" OR ekspansi OR groundbreaking OR "kawasan industri" OR "pusat perbelanjaan")';
+    return 'https://news.google.com/search?' + 'q=' + encodeURIComponent(q) + '&hl=id&gl=ID&ceid=ID%3Aid';
+  }
+
+  function pdrbUrl(place) {
+    return 'https://www.google.com/search?q=' + encodeURIComponent('PDRB menurut lapangan usaha ' + place + ' BPS');
+  }
+
+  // ---------------------------------------------------------------------------
   // Google Places (tanpa jaringan): konversi hasil dan strategi pencarian per petak
   // ---------------------------------------------------------------------------
 
@@ -1511,6 +1772,10 @@
     safeUrl: safeUrl, FIN_KEYS: FIN_KEYS,
     googleCategory: googleCategory, googlePlaceUrl: googlePlaceUrl, googlePlaceToCompany: googlePlaceToCompany,
     splitBBox: splitBBox, bboxMinDistKm: bboxMinDistKm, bboxSizeKm: bboxSizeKm,
-    createGoogleJob: createGoogleJob, runGoogleJob: runGoogleJob, GOOGLE_PAGE: GOOGLE_PAGE
+    createGoogleJob: createGoogleJob, runGoogleJob: runGoogleJob, GOOGLE_PAGE: GOOGLE_PAGE,
+    SECTORS: SECTORS, SECTOR_BY_ID: SECTOR_BY_ID, classifySector: classifySector, sectorStats: sectorStats,
+    findClusters: findClusters, CENTER_TYPES: CENTER_TYPES, centerType: centerType, bankBrand: bankBrand,
+    economyQuery: economyQuery, parseEconomy: parseEconomy, bankCompetition: bankCompetition,
+    cityFromNominatim: cityFromNominatim, newsUrl: newsUrl, pdrbUrl: pdrbUrl
   };
 });

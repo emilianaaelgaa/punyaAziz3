@@ -354,3 +354,65 @@ test('Google: pencarian per petak dipecah saat penuh & mendahulukan pusat', asyn
   assert.equal(usedSparse, 2);
   assert.equal(sparse.done, true);
 });
+
+test('Peluang: klasifikasi sektor dan statistik', () => {
+  assert.equal(U.classifySector({ name: 'PT Sinar Ungaran Textile', category: 'Kantor perusahaan' }), 'industri');
+  assert.equal(U.classifySector({ name: 'CV Maju Bersama', category: 'Grosir / distributor' }), 'dagang');
+  assert.equal(U.classifySector({ name: 'Toko Bangunan Sentosa', category: 'Bahan bangunan' }), 'konstruksi');
+  assert.equal(U.classifySector({ name: 'PT Abadi', category: 'Kantor perusahaan' }), 'lainnya', 'kategori umum tidak dipakai');
+  assert.equal(U.classifySector({ name: 'PT Abadi', category: 'Kantor perusahaan' }, { bidang: 'distributor semen' }), 'dagang', 'bidang isian RM didahulukan');
+  assert.equal(U.classifySector({ name: 'PT Hollandia', category: 'Kantor perusahaan' }), 'lainnya', '"land" di tengah kata tidak dianggap properti');
+  const items = [
+    { sector: 'dagang', zone: 'red' }, { sector: 'dagang', zone: 'orange' }, { sector: 'dagang', zone: 'green' },
+    { sector: 'industri', zone: 'red' }, { sector: 'akomodasi', zone: 'red' }, { sector: 'akomodasi', zone: 'red' },
+    { sector: 'lainnya', zone: 'red' }, { sector: 'lainnya', zone: 'red' }, { sector: 'lainnya', zone: 'red' }, { sector: 'lainnya', zone: 'red' }
+  ];
+  const st = U.sectorStats(items);
+  assert.equal(st[0].id, 'dagang');            // 3+2+1 = 6
+  assert.equal(st[1].id, 'akomodasi');         // (3+3) * 0.7 = 4.2
+  assert.equal(st[2].id, 'industri');          // 3
+  assert.equal(st[st.length - 1].id, 'lainnya', 'bidang belum diketahui selalu terakhir');
+  assert.equal(st[0].near, 2);
+  assert.ok(Math.abs(st[0].share - 0.3) < 1e-9);
+});
+
+test('Peluang: klaster usaha berdekatan', () => {
+  const base = { lat: -7.1386, lon: 110.4053 };
+  const items = [];
+  for (let i = 0; i < 6; i++) items.push({ id: 'a' + i, lat: base.lat + i * 0.0006, lon: base.lon, entity: 'PT', sector: 'dagang' });
+  for (let i = 0; i < 4; i++) items.push({ id: 'b' + i, lat: base.lat + 0.05, lon: base.lon + i * 0.0006, entity: 'CV', sector: 'industri' });
+  items.push({ id: 'lone', lat: base.lat - 0.05, lon: base.lon, entity: 'PT', sector: 'jasa' });
+  const cl = U.findClusters(items, { radiusKm: 0.5, minSize: 4 });
+  assert.equal(cl.length, 2);
+  assert.equal(cl[0].size, 6);
+  assert.equal(cl[0].sector, 'dagang');
+  assert.equal(cl[1].size, 4);
+  assert.equal(cl[1].entities.CV, 4);
+  assert.deepEqual(U.findClusters(items.slice(0, 3), { minSize: 4 }), []);
+});
+
+test('Peluang: pusat ekonomi dan bank pesaing dari OSM', () => {
+  const els = [
+    { type: 'node', id: 1, lat: -7.13, lon: 110.40, tags: { amenity: 'marketplace', name: 'Pasar Bandarjo' } },
+    { type: 'way', id: 2, center: { lat: -7.1301, lon: 110.4001 }, tags: { amenity: 'marketplace', name: 'Pasar Bandarjo' } },
+    { type: 'way', id: 3, center: { lat: -7.15, lon: 110.42 }, tags: { landuse: 'industrial', name: 'Kawasan Industri Ungaran' } },
+    { type: 'way', id: 4, center: { lat: -7.16, lon: 110.43 }, tags: { landuse: 'industrial', name: 'PT Pabrik Sendiri' } },
+    { type: 'way', id: 5, center: { lat: -7.17, lon: 110.44 }, tags: { landuse: 'industrial', name: 'Pergudangan Lingkar' } },
+    { type: 'node', id: 6, lat: -7.12, lon: 110.41, tags: { shop: 'mall', name: 'Ungaran Plaza' } },
+    { type: 'node', id: 7, lat: -7.14, lon: 110.405, tags: { amenity: 'bank', name: 'Bank BRI Unit Ungaran' } },
+    { type: 'node', id: 8, lat: -7.14, lon: 110.406, tags: { amenity: 'bank', name: 'BNI KCP Ungaran' } },
+    { type: 'node', id: 9, lat: -7.14, lon: 110.407, tags: { amenity: 'bank', name: 'ATM Mandiri' } },
+    { type: 'node', id: 10, lat: -7.20, lon: 110.41, tags: { amenity: 'bank', name: 'Bank Mandiri KCP Bawen', brand: 'Mandiri' } },
+    { type: 'node', id: 11, lat: -7.141, lon: 110.405, tags: { amenity: 'bank', name: 'BPR Bank Ungaran' } }
+  ];
+  const eco = U.parseEconomy(els);
+  assert.deepEqual(eco.centers.map((c) => c.type + ':' + c.name), ['pasar:Pasar Bandarjo', 'industri:Kawasan Industri Ungaran', 'gudang:Pergudangan Lingkar', 'mal:Ungaran Plaza']);
+  assert.deepEqual(eco.banks.map((b) => b.brand), ['BRI', 'Mandiri', 'BPR']);
+  const comp = U.bankCompetition(eco.banks, -7.1386, 110.4053, [1, 5, 10]);
+  assert.equal(comp.zones.red, 2);
+  assert.equal(comp.zones.green, 1);
+  assert.equal(comp.withinOrange, 2);
+  assert.ok(U.economyQuery([-7.2, 110.3, -7.0, 110.5]).includes('"amenity"="marketplace"'));
+  assert.equal(U.cityFromNominatim({ address: { county: 'Semarang', state: 'Jawa Tengah' } }), 'Semarang');
+  assert.match(U.newsUrl('Kabupaten Semarang'), /news\.google\.com\/search\?q=/);
+});

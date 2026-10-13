@@ -3,7 +3,7 @@
  * Strategi "jaringan dulu": versi terbaru selalu dipakai bila online.
  * Peta (tile), Overpass, dan Nominatim tidak disimpan di sini.
  */
-var CACHE = 'peta-prospek-v3';
+var CACHE = 'peta-prospek-v4';
 var SHELL = [
   './', 'index.html', 'css/app.css', 'js/util.js', 'js/store.js', 'js/osm.js', 'js/google.js', 'js/excel.js', 'js/app.js',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css', 'vendor/leaflet.markercluster/leaflet.markercluster.js',

@@ -40,6 +40,10 @@
     gJobs: new Map(),
     gJob: null,
     gUsage: null,
+    sectorFilter: null,
+    econ: null,
+    city: null,
+    peluang: null,
     branchQuery: '',
     resultQuery: '',
     prospectQuery: '',
@@ -235,6 +239,7 @@
     layers.results = L.layerGroup().addTo(map);
     layers.saved = L.layerGroup().addTo(map);
     layers.me = L.layerGroup().addTo(map);
+    layers.insight = L.layerGroup().addTo(map);
     layers.branches = L.markerClusterGroup({
       showCoverageOnHover: false, maxClusterRadius: 50, disableClusteringAtZoom: 12,
       spiderfyOnMaxZoom: false, chunkedLoading: true, iconCreateFunction: clusterIcon
@@ -254,7 +259,7 @@
           '<div class="legend-row"><i class="sw out"></i><span>Luar zona</span><b data-r="4"></b></div>' +
           '<div class="legend-row"><i class="sw bank"></i><span>Kantor BNI</span></div>' +
           '<div class="legend-row"><i class="sw saved"></i><span>Prospek saya</span></div>' +
-          '<div class="legend-credit" hidden>Data kantor &copy; kontributor OpenStreetMap</div>';
+          '<div class="legend-credit" hidden>Data kantor &amp; pusat ekonomi &copy; kontributor OpenStreetMap</div>';
         L.DomEvent.disableClickPropagation(div);
         return div;
       }
@@ -289,7 +294,8 @@
   function rebuildLayersControl(base) {
     if (layersControl) layersControl.remove();
     layersControl = L.control.layers(base, {
-      'Kantor BNI': layers.branches, 'Zona': layers.zoneAll, 'Hasil deteksi': layers.results, 'Prospek saya': layers.saved
+      'Kantor BNI': layers.branches, 'Zona': layers.zoneAll, 'Hasil deteksi': layers.results, 'Prospek saya': layers.saved,
+      'Peluang pasar': layers.insight
     }, { position: 'topright' }).addTo(map);
   }
 
@@ -697,6 +703,7 @@
     opts = opts || {};
     if (state.pick) cancelPick();
     var prevId = state.activeBranch ? state.activeBranch.id : null;
+    if (!prevId || prevId !== b.id) state.sectorFilter = null;
     state.activeBranch = b;
     state.settings.lastBranchId = b.id;
     saveSettingsSoon();
@@ -713,6 +720,7 @@
   function clearBranch() {
     var prevId = state.activeBranch ? state.activeBranch.id : null;
     state.activeBranch = null;
+    state.sectorFilter = null;
     state.settings.lastBranchId = null;
     saveSettingsSoon();
     if (state.detectCtrl) state.detectCtrl.abort();
@@ -896,6 +904,7 @@
           item.refName = near ? near.branch.name : '';
         }
         item.zone = U.zoneFor(item.dist, r);
+        item.sector = U.classifySector(item, item.profile);
         list.push(item);
       };
       state.rawResults.forEach(function (c) {
@@ -919,6 +928,266 @@
     renderResults();
     renderProspects();
     updateCounts();
+    if (state.tab === 'peluang') { renderPeluang(); ensureEconomy(); }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Peluang pasar: sektor unggulan, klaster usaha, pusat ekonomi, bank pesaing
+  // ---------------------------------------------------------------------------
+
+  function peluangRef() {
+    var ctx = state.resultsCtx;
+    if (!ctx) return null;
+    if (ctx.kind === 'branch') {
+      var b = state.branchById.get(ctx.branchId);
+      return { lat: ctx.lat, lon: ctx.lon, name: ctx.refName, city: b ? b.city : '', kind: 'branch' };
+    }
+    var bb = ctx.bbox;
+    return { lat: (bb[0] + bb[2]) / 2, lon: (bb[1] + bb[3]) / 2, name: 'tengah area peta', city: '', kind: 'area' };
+  }
+
+  function econKey(ctx) { return ctx.bbox.map(function (n) { return n.toFixed(3); }).join(','); }
+
+  async function ensureEconomy(force) {
+    var ctx = state.resultsCtx;
+    if (!ctx) return;
+    var key = econKey(ctx);
+    if (!force && state.econ && state.econ.key === key && (state.econ.data || state.econ.loading)) return;
+    var mine = { key: key, loading: true, data: null, error: null };
+    state.econ = mine;
+    renderPeluang();
+    try {
+      mine.data = await O.loadEconomy(ctx.bbox, { force: !!force, endpoint: state.settings.overpass });
+    } catch (e) {
+      mine.error = e.message;
+    }
+    mine.loading = false;
+    if (state.econ === mine && state.tab === 'peluang') renderPeluang();
+    ensureCity();
+  }
+
+  async function ensureCity() {
+    var ref = peluangRef();
+    if (!ref) return;
+    var key = ref.lat.toFixed(2) + ',' + ref.lon.toFixed(2);
+    if (state.city && state.city.key === key) return;
+    state.city = { key: key, name: ref.city || '' };
+    try {
+      var name = await O.cityName(ref.lat, ref.lon);
+      if (name && state.city.key === key) {
+        state.city.name = name;
+        if (state.tab === 'peluang') renderPeluang();
+      }
+    } catch (e) {
+      /* tautan tetap memakai nama kantor */
+    }
+  }
+
+  // Jalan yang paling sering muncul pada alamat anggota klaster, sebagai patokan lokasi.
+  function commonStreet(members) {
+    var count = {};
+    members.forEach(function (m) {
+      var st = String(m.address || '').split(',')[0].replace(/\s+No\.?\s*\S+$/i, '').trim();
+      if (st && /^(jl|jalan|jln)\b/i.test(st)) count[st] = (count[st] || 0) + 1;
+    });
+    var best = Object.keys(count).sort(function (a, b) { return count[b] - count[a]; })[0];
+    return best || '';
+  }
+
+  function entityMix(entities) {
+    return Object.keys(entities).sort(function (a, b) { return entities[b] - entities[a]; }).slice(0, 3)
+      .map(function (k) { return entities[k] + ' ' + (U.ENTITY_LABEL[k] || k); }).join(', ');
+  }
+
+  function zoneBarHTML(z, total) {
+    total = total || 1;
+    return '<div class="zonebar" role="img" aria-label="Merah ' + z.red + ', oranye ' + z.orange + ', hijau ' + z.green + ', luar zona ' + z.out + '">' +
+      ['red', 'orange', 'green', 'out'].map(function (k) {
+        return z[k] ? '<i class="' + k + '" style="width:' + (z[k] / total * 100).toFixed(1) + '%"></i>' : '';
+      }).join('') + '</div>';
+  }
+
+  function peluangData() {
+    var ef = state.settings.entityFilter;
+    var items = state.results.filter(function (c) { return ef[c.entity] !== false; });
+    var ref = peluangRef();
+    var econ = state.econ && state.resultsCtx && state.econ.key === econKey(state.resultsCtx) ? state.econ : null;
+    var centers = [], comp = null;
+    if (econ && econ.data && ref) {
+      var ctx = state.resultsCtx;
+      var r = state.settings.radii;
+      centers = econ.data.centers.map(function (c) {
+        var d = U.haversineKm(ref.lat, ref.lon, c.lat, c.lon);
+        var near = items.filter(function (it) { return Math.abs(it.lat - c.lat) < 0.01 && U.haversineKm(it.lat, it.lon, c.lat, c.lon) <= 1; }).length;
+        return Object.assign({}, c, { dist: d, zone: U.zoneFor(d, r), activity: near });
+      }).filter(function (c) {
+        return ctx.kind === 'branch' ? c.dist <= ctx.radius : inBBox(c, ctx.bbox);
+      }).sort(function (a, b) { return (b.activity - a.activity) || (a.dist - b.dist); });
+      comp = U.bankCompetition(econ.data.banks, ref.lat, ref.lon, r);
+    }
+    return {
+      ref: ref, items: items, econ: econ, centers: centers, comp: comp,
+      stats: U.sectorStats(items),
+      clusters: U.findClusters(items, { radiusKm: 0.5, minSize: 4, max: 5 })
+    };
+  }
+
+  function renderPeluang() {
+    var ctx = state.resultsCtx;
+    var t = radiiText(state.settings.radii);
+    if (!ctx) {
+      $('peluangContext').innerHTML = '<strong>Peluang pasar</strong><span>Pilih kantor BNI atau deteksi suatu area dulu. Rekomendasi sektor, klaster usaha, dan pusat ekonomi disusun dari usaha yang terdeteksi.</span>';
+      $('peluangBody').innerHTML = '<div class="empty"><strong>Belum ada area</strong><p>Pilih kantor di tab Cabang atau di peta.</p>' +
+        '<button type="button" class="btn" data-action="goto-cabang">Cari kantor BNI</button></div>';
+      state.peluang = null;
+      renderInsightLayer();
+      return;
+    }
+    var P = peluangData();
+    state.peluang = P;
+    var ref = P.ref;
+    var refName = ref.kind === 'branch' ? ref.name : 'tengah area peta';
+    $('peluangContext').innerHTML = '<strong>Peluang pasar ' + (ref.kind === 'branch' ? 'sekitar ' + esc(ref.name) : 'di area peta') + '</strong>' +
+      '<span>Disusun dari ' + U.formatCount(P.items.length) + ' usaha terdeteksi' + (isGoogleMode() ? ' (Google Maps)' : ' (OpenStreetMap)') +
+      ', pusat ekonomi, dan bank di sekitarnya.</span>';
+    if (state.resultsLoading && !P.items.length) {
+      $('peluangBody').innerHTML = '<div class="empty"><strong>Menunggu hasil deteksi…</strong></div>';
+      return;
+    }
+    var html = [];
+    var top = P.stats.filter(function (st) { return st.id !== 'lainnya'; });
+    var unknown = P.stats.find(function (st) { return st.id === 'lainnya'; });
+
+    // Ringkasan
+    var sum = [];
+    if (!P.items.length) {
+      sum.push('Belum ada usaha terdeteksi di area ini, jadi sektor unggulan belum bisa dihitung. Lihat pusat ekonomi dan berita wilayah di bawah, atau tambah prospek sendiri.');
+    }
+    if (top[0]) {
+      sum.push('<b>Sektor paling potensial: ' + esc(top[0].label) + '</b>. ' + U.formatCount(top[0].count) + ' usaha, ' +
+        U.formatCount(top[0].near) + ' di zona merah/oranye. ' + esc(top[0].produk));
+    }
+    if (top[1]) sum.push('Berikutnya: ' + esc(top[1].label) + ' (' + U.formatCount(top[1].count) + ' usaha)' +
+      (top[2] ? ' dan ' + esc(top[2].label) + ' (' + U.formatCount(top[2].count) + ')' : '') + '.');
+    if (P.clusters[0]) {
+      var c0 = P.clusters[0];
+      var st0 = commonStreet(c0.members);
+      sum.push('Klaster terpadat: ' + U.formatCount(c0.size) + ' usaha dalam radius 500 m' + (st0 ? ' di sekitar ' + esc(st0) : '') + ', ' +
+        esc(U.formatKm(U.haversineKm(ref.lat, ref.lon, c0.lat, c0.lon))) + ' dari ' + esc(refName) +
+        (c0.sector ? ', didominasi ' + esc(U.SECTOR_BY_ID[c0.sector].label.toLowerCase()) : '') + '.');
+    }
+    if (P.centers[0]) {
+      var ce = P.centers[0];
+      sum.push('Pusat ekonomi teramai: ' + esc(ce.name) + ' (' + esc(ce.typeLabel.toLowerCase()) + ', ' + esc(U.formatKm(ce.dist)) + '), ' +
+        U.formatCount(ce.activity) + ' usaha terdeteksi dalam 1 km.');
+    }
+    if (P.comp) {
+      var b0 = P.comp.brandList[0];
+      sum.push('Persaingan: ' + U.formatCount(P.comp.withinOrange) + ' kantor bank lain dalam ' + t.r2 + ' km' +
+        (b0 ? ' (terbanyak ' + esc(b0.brand) + ', ' + U.formatCount(b0.count) + ')' : '') + '.');
+    }
+    if (unknown && P.items.length && unknown.count / P.items.length > 0.4) {
+      sum.push(U.formatCount(unknown.count) + ' usaha belum diketahui bidangnya. Isi "Bidang usaha" saat kunjungan agar rekomendasi makin tajam.');
+    }
+    html.push('<section class="ins-sec"><h3>Ringkasan rekomendasi</h3><ul class="ins-summary">' +
+      sum.map(function (x) { return '<li>' + x + '</li>'; }).join('') + '</ul></section>');
+
+    // Sektor unggulan
+    if (P.stats.length) {
+      html.push('<section class="ins-sec"><h3>Sektor unggulan <small>skor = jumlah × kedekatan × kecocokan plafond</small></h3><ul class="ins-list">' +
+        P.stats.map(function (st) {
+          return '<li class="ins-sector' + (st.id === 'lainnya' ? ' muted' : '') + '">' +
+            '<div class="ins-row"><b>' + esc(st.label) + '</b><span class="ins-count">' + U.formatCount(st.count) + ' usaha · ' + U.formatPct(st.share, 0) + '</span></div>' +
+            zoneBarHTML(st.zones, st.count) +
+            '<div class="zonebar-legend"><span>Merah ' + st.zones.red + '</span><span>Oranye ' + st.zones.orange + '</span><span>Hijau ' + st.zones.green + '</span><span>Luar ' + st.zones.out + '</span></div>' +
+            '<p>' + esc(st.produk) + '</p>' +
+            '<button type="button" class="btn small" data-sector="' + st.id + '">Lihat ' + U.formatCount(st.count) + ' usaha</button></li>';
+        }).join('') + '</ul></section>');
+    }
+
+    // Klaster
+    if (P.clusters.length) {
+      html.push('<section class="ins-sec"><h3>Klaster usaha <small>≥ 4 usaha dalam 500 m</small></h3><ul class="ins-list">' +
+        P.clusters.map(function (c, i) {
+          var st = commonStreet(c.members);
+          var sub = [U.formatKm(U.haversineKm(ref.lat, ref.lon, c.lat, c.lon)) + ' dari ' + refName, st, entityMix(c.entities)].filter(Boolean).join(' · ');
+          return '<li><button type="button" class="item" data-cluster="' + i + '"><span class="ins-badge">K' + (i + 1) + '</span>' +
+            '<span class="item-main"><span class="item-title">' + U.formatCount(c.size) + ' usaha · ' + esc(c.sector ? U.SECTOR_BY_ID[c.sector].label : 'sektor campuran') + '</span>' +
+            '<span class="item-sub">' + esc(sub) + '</span></span></button></li>';
+        }).join('') + '</ul></section>');
+    }
+
+    // Pusat ekonomi
+    var eh = '<section class="ins-sec"><h3>Pusat ekonomi terdekat <small>pasar, mal, kawasan industri</small></h3>';
+    if (!P.econ || P.econ.loading) eh += '<p class="ins-note">Memuat pasar, mal, kawasan industri, dan bank di sekitar…</p>';
+    else if (P.econ.error) eh += '<p class="error">' + esc(P.econ.error) + ' <button type="button" class="linklike" data-action="retry-econ">Coba lagi</button></p>';
+    else if (!P.centers.length) eh += '<p class="ins-note">Belum ada pasar, mal, atau kawasan industri yang tercatat di OpenStreetMap untuk area ini.</p>';
+    else {
+      var city = (state.city && state.city.name) || ref.city || '';
+      eh += '<ul class="ins-list">' + P.centers.slice(0, 8).map(function (c) {
+        var icon = c.type === 'industri' || c.type === 'gudang' ? 'factory' : c.type === 'pelabuhan' ? 'anchor' : 'store';
+        var crowd = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(c.name + (city ? ' ' + city : ''));
+        return '<li><button type="button" class="item" data-center="' + esc(c.id) + '"><span class="ins-ic t-' + c.type + '"><svg class="i"><use href="#i-' + icon + '"/></svg></span>' +
+          '<span class="item-main"><span class="item-title">' + esc(c.name) + '</span>' +
+          '<span class="item-sub">' + esc(c.typeLabel) + ' · ' + esc(U.formatKm(c.dist)) + ' · ' + U.formatCount(c.activity) + ' usaha dalam 1 km</span></span>' +
+          '<span class="item-side"><span class="zone-pill ' + c.zone + '">' + (c.zone === 'out' ? 'Luar' : U.ZONE_LABEL[c.zone]) + '</span></span></button>' +
+          '<a class="ins-sub-link" href="' + esc(crowd) + '" target="_blank" rel="noopener">Lihat jam ramai di Google Maps</a></li>';
+      }).join('') + '</ul>';
+    }
+    html.push(eh + '</section>');
+
+    // Bank pesaing
+    if (P.comp) {
+      var max = P.comp.brandList.length ? P.comp.brandList[0].count : 1;
+      html.push('<section class="ins-sec"><h3>Bank lain di sekitar <small>dalam ' + t.r2 + ' km: ' + U.formatCount(P.comp.withinOrange) + ' kantor</small></h3>' +
+        (P.comp.brandList.length ? '<div class="bank-bars">' + P.comp.brandList.slice(0, 7).map(function (b) {
+          return '<div class="bank-bar"><span>' + esc(b.brand) + '</span><i style="width:' + Math.max(4, b.count / max * 100).toFixed(0) + '%"></i><b>' + b.count + '</b></div>';
+        }).join('') + '</div>' : '<p class="ins-note">Tidak ada kantor bank lain tercatat dalam ' + t.r2 + ' km.</p>') +
+        '<p class="ins-note">Merah ' + P.comp.zones.red + ' · Oranye ' + P.comp.zones.orange + ' · Hijau ' + P.comp.zones.green +
+        '. Banyak bank berarti aktivitas ekonomi ramai, tetapi persaingan juga ketat.</p></section>');
+    }
+
+    // Kabar & data wilayah
+    var place = (state.city && state.city.name) || ref.city || ref.name;
+    html.push('<section class="ins-sec"><h3>Yang sedang ramai di ' + esc(place) + '</h3><div class="ins-links">' +
+      '<a href="' + esc(U.newsUrl(place)) + '" target="_blank" rel="noopener"><svg class="i"><use href="#i-news"/></svg>Berita investasi, pabrik baru, dan ekspansi usaha</a>' +
+      '<a href="' + esc(U.pdrbUrl(place)) + '" target="_blank" rel="noopener"><svg class="i"><use href="#i-chart"/></svg>Pertumbuhan ekonomi per sektor (PDRB) dari BPS</a>' +
+      '</div><p class="ins-note">Rekomendasi di atas adalah perkiraan dari data peta di sekitar ' + esc(refName) +
+      '. Sektor ditebak dari nama dan kategori usaha. Tren pertumbuhan resmi ada di BPS; keramaian harian ada di Google Maps.</p></section>');
+
+    $('peluangBody').innerHTML = html.join('');
+    renderInsightLayer();
+  }
+
+  // Lapisan peta untuk tab Peluang: lingkar klaster, pusat ekonomi, dan bank lain.
+  function renderInsightLayer() {
+    if (!layers.insight) return;
+    layers.insight.clearLayers();
+    var P = state.peluang;
+    if (state.tab !== 'peluang' || !P) return;
+    P.clusters.forEach(function (c, i) {
+      L.circle([c.lat, c.lon], { radius: 500, renderer: renderers.lines, color: colors.accent, weight: 2, dashArray: '4 4', fill: false, interactive: false }).addTo(layers.insight);
+      L.marker([c.lat + 0.5 / 110.57, c.lon], {
+        pane: 'zoneLines', interactive: false, keyboard: false,
+        icon: L.divIcon({ className: 'cluster-label', iconSize: [0, 0], html: '<span>K' + (i + 1) + ' · ' + c.size + '</span>' })
+      }).addTo(layers.insight);
+    });
+    P.centers.slice(0, 20).forEach(function (c) {
+      var icon = c.type === 'industri' || c.type === 'gudang' ? 'factory' : c.type === 'pelabuhan' ? 'anchor' : 'store';
+      L.marker([c.lat, c.lon], {
+        icon: L.divIcon({ className: 'center-icon', iconSize: [26, 26], iconAnchor: [13, 13], html: '<div class="t-' + c.type + '"><svg class="i"><use href="#i-' + icon + '"/></svg></div>' }),
+        title: c.name
+      }).bindTooltip(esc(c.name) + ' · ' + esc(c.typeLabel), { className: 'ct', direction: 'top', offset: [0, -14] }).addTo(layers.insight);
+    });
+    if (P.econ && P.econ.data && P.ref) {
+      var ctx = state.resultsCtx;
+      P.econ.data.banks.forEach(function (b) {
+        if (ctx.kind === 'branch' ? U.haversineKm(P.ref.lat, P.ref.lon, b.lat, b.lon) > ctx.radius : !inBBox(b, ctx.bbox)) return;
+        L.circleMarker([b.lat, b.lon], { renderer: renderers.companies, radius: 4, color: colors.card, weight: 1.5, fillColor: colors.ink, fillOpacity: 0.55 })
+          .bindTooltip(esc(b.brand) + ' · ' + esc(b.name), { className: 'ct', direction: 'top', offset: [0, -6] })
+          .addTo(layers.insight);
+      });
+    }
   }
 
   function filteredResults() {
@@ -928,6 +1197,7 @@
     var list = state.results.filter(function (c) {
       if (zf[c.zone] === false) return false;
       if (ef[c.entity] === false) return false;
+      if (state.sectorFilter && c.sector !== state.sectorFilter) return false;
       if (q && normQ([c.name, c.address, c.category, c.operator].join(' ')).indexOf(q) < 0) return false;
       return true;
     });
@@ -1145,7 +1415,11 @@
     // Chip badan usaha
     var ec = {};
     state.results.forEach(function (c) { ec[c.entity] = (ec[c.entity] || 0) + 1; });
-    $('entityChips').innerHTML = hasCtx ? U.ENTITIES.filter(function (e) {
+    var sectorChip = hasCtx && state.sectorFilter
+      ? '<button type="button" class="chip sector-chip" data-action="clear-sector" title="Hapus saringan sektor">Sektor: ' +
+        esc(U.SECTOR_BY_ID[state.sectorFilter].label) + ' <svg class="i" style="width:14px;height:14px"><use href="#i-x"/></svg></button>'
+      : '';
+    $('entityChips').innerHTML = hasCtx ? sectorChip + U.ENTITIES.filter(function (e) {
       return ec[e.id] || (e.id !== 'Lainnya' && e.id !== 'Firma' && e.id !== 'PD');
     }).map(function (e) {
       var on = state.settings.entityFilter[e.id] !== false;
@@ -1329,6 +1603,7 @@
     item.dist = v.nearest ? v.nearest.dist : null;
     item.refName = v.nearest ? v.nearest.name : '';
     item.zone = v.zone || 'out';
+    item.sector = U.classifySector(item, p);
     return item;
   }
 
@@ -1468,6 +1743,8 @@
       var web = U.safeUrl(item.website);
       if (web) facts.push(['Situs web', '<a href="' + esc(web) + '" target="_blank" rel="noopener">' + esc(item.website) + '</a>']);
     }
+    var sec = U.classifySector(item, item.profile);
+    if (sec !== 'lainnya') facts.push(['Perkiraan sektor', esc(U.SECTOR_BY_ID[sec].label)]);
     if (item.nearest) {
       facts.push(['Kantor BNI terdekat', esc(item.nearest.name) + ' · ' + esc(U.formatKm(item.nearest.dist))]);
     }
@@ -1896,12 +2173,14 @@
 
   function setTab(tab) {
     state.tab = tab;
-    ['cabang', 'deteksi', 'prospek'].forEach(function (t) {
+    ['cabang', 'deteksi', 'peluang', 'prospek'].forEach(function (t) {
       $('tab-' + t).hidden = t !== tab;
       $('tabbtn-' + t).setAttribute('aria-selected', String(t === tab));
     });
     if (tab === 'cabang') renderBranchList();
     if (tab === 'prospek') renderProspects();
+    if (tab === 'peluang') { renderPeluang(); ensureEconomy(); }
+    else if (layers.insight) layers.insight.clearLayers();
   }
 
   function setSheet(s) {
@@ -2381,6 +2660,26 @@
       updateCounts();
       return;
     }
+    if (btn.hasAttribute('data-sector')) {
+      state.sectorFilter = btn.getAttribute('data-sector');
+      state.resultLimit = 150;
+      setTab('deteksi');
+      renderResultMarkers();
+      renderResults();
+      updateCounts();
+      return;
+    }
+    if (btn.hasAttribute('data-cluster')) {
+      var cl = state.peluang && state.peluang.clusters[+btn.getAttribute('data-cluster')];
+      if (cl) map.fitBounds(L.latLng(cl.lat, cl.lon).toBounds(1400), { maxZoom: 16 });
+      return;
+    }
+    if (btn.hasAttribute('data-center')) {
+      var cid = btn.getAttribute('data-center');
+      var ce = state.peluang && state.peluang.centers.find(function (x) { return x.id === cid; });
+      if (ce) map.setView([ce.lat, ce.lon], Math.max(map.getZoom(), 15));
+      return;
+    }
     if (btn.hasAttribute('data-source')) {
       switchSource(btn.getAttribute('data-source'));
       return;
@@ -2397,6 +2696,13 @@
       case 'reload-branches': loadOsmBranches(true); break;
       case 'retry-detect': runDetection({ manual: true }); break;
       case 'google-more': runDetection({ more: true, manual: true }); break;
+      case 'clear-sector':
+        state.sectorFilter = null;
+        renderResultMarkers();
+        renderResults();
+        updateCounts();
+        break;
+      case 'retry-econ': ensureEconomy(true); break;
       case 'goto-cabang': setTab('cabang'); $('branchSearch').focus(); break;
       case 'include-others':
         state.settings.includeOthers = true;

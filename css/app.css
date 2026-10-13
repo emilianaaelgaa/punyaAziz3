@@ -338,6 +338,65 @@ select { padding-right: 28px; }
 .pipeline b { display: block; font-family: var(--font-display); font-size: 17px; line-height: 1.15; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pipeline span { font-size: 11px; color: var(--ink-3); font-weight: 600; }
 
+/* ---------- Peluang pasar ---------- */
+
+.insight { overflow-y: auto; flex: 1; min-height: 0; padding: 4px 12px 20px; display: flex; flex-direction: column; gap: 16px; }
+.ins-sec { display: flex; flex-direction: column; gap: 8px; }
+.ins-sec > h3 {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  font-size: 11.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3);
+  padding-bottom: 6px; border-bottom: 1px solid var(--line);
+}
+.ins-sec > h3 small { font-size: 11px; letter-spacing: 0; text-transform: none; font-weight: 600; }
+.ins-summary { margin: 0; padding: 12px 14px 12px 30px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 7px; font-size: 13px; line-height: 1.45; }
+.ins-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.ins-sector { padding: 10px 12px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 6px; }
+.ins-sector.muted { background: transparent; }
+.ins-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.ins-row b { font-size: 13.5px; line-height: 1.3; }
+.ins-count { flex: none; font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.ins-sector p { margin: 0; font-size: 12px; color: var(--ink-2); }
+.ins-sector .btn { align-self: flex-start; }
+.zonebar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; background: var(--wash); }
+.zonebar i { display: block; height: 100%; }
+.zonebar .red { background: var(--zone-red); }
+.zonebar .orange { background: var(--zone-orange); }
+.zonebar .green { background: var(--zone-green); }
+.zonebar .out { background: var(--zone-out); }
+.zonebar-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 11px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.ins-badge, .ins-ic {
+  flex: none; display: inline-grid; place-items: center; min-width: 30px; height: 26px; padding: 0 6px; border-radius: 7px;
+  background: var(--accent-soft); color: var(--accent); font-size: 11.5px; font-weight: 800;
+}
+.ins-ic .i { width: 16px; height: 16px; }
+.ins-ic.t-industri, .ins-ic.t-gudang { background: var(--orange-soft); color: var(--zone-orange); }
+.ins-ic.t-pasar, .ins-ic.t-mal { background: var(--green-soft); color: var(--zone-green); }
+.ins-ic.t-pelabuhan { background: var(--out-soft); color: var(--zone-out); }
+.ins-links { display: flex; flex-direction: column; gap: 6px; }
+.ins-links a { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--ink); text-decoration: none; font-weight: 600; font-size: 13px; }
+.ins-links a:hover { background: var(--wash); }
+.ins-links a .i { color: var(--accent); }
+.ins-sub-link { font-size: 11.5px; font-weight: 600; margin: -2px 0 2px 50px; display: inline-block; }
+.bank-bars { display: flex; flex-direction: column; gap: 5px; }
+.bank-bar { display: grid; grid-template-columns: 92px minmax(0, 1fr) 28px; gap: 8px; align-items: center; font-size: 12px; }
+.bank-bar span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-2); font-weight: 600; }
+.bank-bar i { display: block; height: 8px; border-radius: 4px; background: var(--ink-3); min-width: 3px; }
+.bank-bar b { text-align: right; font-variant-numeric: tabular-nums; }
+.ins-note { margin: 0; font-size: 11.5px; color: var(--ink-3); }
+.chip.sector-chip { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.cluster-label, .center-icon { background: none; border: 0; }
+.cluster-label span {
+  display: inline-block; transform: translate(-50%, -50%); padding: 2px 7px; border-radius: 9px;
+  background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 800; box-shadow: 0 1px 4px rgba(0, 0, 0, .3);
+}
+.center-icon div {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--card); color: var(--zone-green); box-shadow: 0 0 0 2px currentColor, 0 2px 6px rgba(0, 0, 0, .3);
+}
+.center-icon div.t-industri, .center-icon div.t-gudang { color: var(--zone-orange); }
+.center-icon div.t-pelabuhan { color: var(--zone-out); }
+.center-icon .i { width: 15px; height: 15px; stroke-width: 2.2; }
+
 /* ---------- Peta ---------- */
 
 .mapwrap { grid-area: map; position: relative; z-index: 1; min-width: 0; min-height: 0; overflow: hidden; }
