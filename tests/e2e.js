@@ -66,6 +66,7 @@ const companyElements = [
   node(2011, offset(UNGARAN, 8.0, 280), { name: 'Gudang Beras Sentosa', operator: 'CV Sentosa Pangan', building: 'warehouse' }),
   node(2012, offset(UNGARAN, 2.0, 80), { name: 'Halte PT Maju', highway: 'bus_stop' }),
   node(2013, offset(UNGARAN, 12.0, 90), { name: 'PT Jauh Sekali', office: 'company' }),
+  node(2018, offset(UNGARAN, 25.0, 180), { name: 'PT Di Luar Jangkauan', office: 'company' }),
   node(2014, offset(UNGARAN, 1.5, 300), { name: 'Hotel Ungaran Indah', tourism: 'hotel' }),
   node(2015, offset(UNGARAN, 5.5, 20), { name: 'PT Gemilang Abadi', office: 'company', email: 'info@contoh.co.id', 'addr:full': 'Jl. Raya Ungaran No. 5, Ungaran' }),
   node(2016, offset(UNGARAN, 9.5, 140), { name: 'CV Karya Teknik', craft: 'metal_construction' }),
@@ -195,7 +196,8 @@ async function run() {
     assert.ok(names.includes('Gudang Beras Sentosa|green|CV'), 'terdeteksi lewat operator');
     assert.ok(!has('PT Bank Rakyat Indonesia (Persero) Tbk'), 'bank dikecualikan');
     assert.ok(!has('Halte PT Maju'), 'halte dikecualikan');
-    assert.ok(!has('PT Jauh Sekali'), 'di luar 10 km');
+    assert.ok(names.includes('PT Jauh Sekali|out|PT'), '12 km tetap tampil sebagai luar zona');
+    assert.ok(!has('PT Di Luar Jangkauan'), '25 km di luar jangkauan 20 km');
     assert.ok(!has('Hotel Ungaran Indah'), 'usaha tanpa label tidak ikut secara bawaan');
     assert.equal(names.filter((x) => x.startsWith('PT Ungaran Sari Garments|')).length, 1, 'duplikat digabung');
     // Tbk & BUMN tersembunyi oleh filter bawaan
@@ -203,7 +205,10 @@ async function run() {
     assert.ok(!listed.some((t) => t.includes('Pertamina')));
     assert.ok(!listed.some((t) => t.includes('Astra')));
     const tally = await page.locator('#zoneTally .n').allInnerTexts();
-    assert.equal(tally.length, 3);
+    assert.equal(tally.length, 4);
+    assert.match(await page.locator('#zoneTally [data-zone="out"]').innerText(), /10–20 km/);
+    const gm = await page.locator('#detectContext .gm-links a').first().getAttribute('href');
+    assert.equal(gm, 'https://www.google.com/maps/search/PT/@-7.138600,110.405300,13z');
     const visible = await page.evaluate(() => document.querySelectorAll('#resultList .item').length);
     assert.equal(visible, tally.map(Number).reduce((a, b) => a + b, 0));
     // XSS: nama berbahaya tampil sebagai teks
@@ -408,6 +413,27 @@ async function run() {
     assert.equal(unnamed, 0);
   });
 
+  await step('tambah prospek dari tautan Google Maps', async () => {
+    await page.click('#btnAddProspect');
+    await page.fill('#pickCoord', 'https://www.google.com/maps/place/CV+Dari+Google/@-7.10,110.30,15z/data=!4m6!3m5!8m2!3d-7.1450!4d110.4120');
+    await page.click('#pickPaste button[type="submit"]');
+    await page.waitForSelector('#dossier:not([hidden]) [data-f="name"]');
+    await page.fill('[data-f="name"]', 'CV Dari Google');
+    await page.waitForTimeout(600);
+    const p = await page.evaluate(() => Object.values(window.__PP_STATE__.profiles).find((x) => x.name === 'CV Dari Google'));
+    assert.equal(p.lat, -7.145);
+    assert.equal(p.lon, 110.412);
+    // Koordinat salah ditolak tanpa membuat prospek
+    await page.fill('#coordPaste', 'bukan koordinat');
+    await page.click('[data-action="apply-coord"]');
+    assert.match(await page.locator('#toast').innerText(), /tidak dikenali/);
+    await page.fill('#coordPaste', '-7.1460, 110.4130');
+    await page.click('[data-action="apply-coord"]');
+    const q = await page.evaluate(() => Object.values(window.__PP_STATE__.profiles).find((x) => x.name === 'CV Dari Google'));
+    assert.equal(q.lat, -7.146);
+    await page.click('#btnDossierClose');
+  });
+
   await step('pengaturan: ubah radius & sertakan usaha lain', async () => {
     await page.click('#btnSettings');
     await page.fill('#setR1', '2');
@@ -415,6 +441,10 @@ async function run() {
     await page.click('#btnSaveSettings');
     assert.ok(await page.isVisible('#setError'));
     await page.fill('#setR2', '6');
+    await page.fill('#setRMax', '8');
+    await page.click('#btnSaveSettings');
+    assert.match(await page.locator('#setError').innerText(), /Jangkauan/);
+    await page.fill('#setRMax', '15');
     await page.check('#setOthers');
     await page.click('#btnSaveSettings');
     await page.waitForFunction(() => !window.__PP_STATE__.resultsLoading && window.__PP_STATE__.settings.includeOthers, null, { timeout: 15000 });
@@ -422,6 +452,8 @@ async function run() {
     const z = await page.evaluate(() => window.__PP_STATE__.results.find((c) => c.name === 'CV Maju Bersama').zone);
     assert.equal(z, 'red');
     assert.match(await page.locator('#brandZones').innerText(), /2–6–10/);
+    const far = await page.evaluate(() => window.__PP_STATE__.results.find((c) => c.name === 'PT Jauh Sekali'));
+    assert.equal(far.zone, 'out', '12 km masih dalam jangkauan 15 km');
   });
 
   await step('lepas kantor → mode area', async () => {

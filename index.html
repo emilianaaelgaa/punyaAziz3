@@ -137,8 +137,14 @@
       <button class="btn raised" id="btnAddProspect" type="button" title="Tambah prospek di peta"><svg class="i"><use href="#i-plus"/></svg><span>Prospek</span></button>
     </div>
     <div class="pick-banner" id="pickBanner" hidden>
-      <svg class="i"><use href="#i-pin"/></svg><span id="pickText">Ketuk lokasi di peta</span>
-      <button class="btn small" id="btnPickCancel" type="button">Batal</button>
+      <div class="pick-row">
+        <svg class="i"><use href="#i-pin"/></svg><span id="pickText">Ketuk lokasi di peta</span>
+        <button class="btn small" id="btnPickCancel" type="button">Batal</button>
+      </div>
+      <form class="pick-paste" id="pickPaste" novalidate>
+        <input type="text" id="pickCoord" placeholder="atau tempel koordinat / link Google Maps" aria-label="Tempel koordinat atau link Google Maps" autocomplete="off">
+        <button class="btn small" type="submit">Pakai</button>
+      </form>
     </div>
   </main>
 
@@ -161,12 +167,13 @@
     <div class="dlg-body">
       <fieldset>
         <legend>Zona jarak dari kantor BNI</legend>
-        <div class="grid3">
+        <div class="grid4">
           <label class="field zf-red"><span>Merah sampai (km)</span><input id="setR1" type="number" min="0.1" step="0.1" inputmode="decimal"></label>
           <label class="field zf-orange"><span>Oranye sampai (km)</span><input id="setR2" type="number" min="0.1" step="0.1" inputmode="decimal"></label>
           <label class="field zf-green"><span>Hijau sampai (km)</span><input id="setR3" type="number" min="0.1" step="0.1" inputmode="decimal"></label>
+          <label class="field zf-out"><span>Jangkauan maks. (km)</span><input id="setRMax" type="number" min="1" max="50" step="1" inputmode="decimal"></label>
         </div>
-        <p class="hint">Bawaan 1 / 5 / 10 km. Usaha yang lebih jauh dari batas hijau tidak ditampilkan.</p>
+        <p class="hint">Bawaan 1 / 5 / 10 km. Usaha di luar batas hijau tetap ditampilkan sebagai "Luar zona" sampai jangkauan maksimal (bawaan 20 km, maksimal 50 km). Jangkauan besar membuat deteksi lebih lama.</p>
       </fieldset>
       <fieldset>
         <legend>Target plafond kredit</legend>
@@ -264,7 +271,7 @@
         <li>Pilih kantor BNI: klik penanda di peta atau cari di tab <b>Cabang</b>. Gunakan <b>Lokasi saya</b> untuk melihat kantor terdekat.</li>
         <li>Aplikasi menggambar tiga zona dan mendeteksi PT, CV, UD, PD, Firma, dan koperasi di sekitarnya dari OpenStreetMap.</li>
         <li>Buka satu perusahaan untuk melihat alamat, kontak, dan tautan riset (Google Maps, Street View, AHU, LinkedIn). Isi status, estimasi plafond, struktur organisasi, dan laporan keuangan; semuanya tersimpan otomatis ke <b>Prospek saya</b>.</li>
-        <li>Tambahkan prospek yang belum ada di peta dengan tombol <b>Prospek</b>, atau impor daftar dari Excel.</li>
+        <li>Tambahkan prospek yang belum ada di peta dengan tombol <b>Prospek</b>: ketuk lokasinya, atau tempel koordinat/tautan dari Google Maps. Daftar dari Excel juga bisa diimpor.</li>
         <li>Ekspor hasil deteksi atau pipeline Anda ke Excel untuk laporan.</li>
       </ol>
       <h3>Zona</h3>
@@ -274,6 +281,7 @@
       <ul>
         <li><b>Kantor BNI dan badan usaha</b>: OpenStreetMap (© kontributor OpenStreetMap, lisensi ODbL), diambil lewat Overpass API. Data ini diisi sukarelawan sehingga bisa belum lengkap atau kurang tepat, terutama untuk PT/CV kecil. Kantor BNI bisa ditimpa dengan daftar resmi melalui impor Excel.</li>
         <li><b>Struktur organisasi dan laporan keuangan</b> tidak tersedia gratis untuk perusahaan tertutup. Sumber resminya AHU Online Kemenkum (berbayar per perusahaan) dan dokumen dari calon debitur sendiri. Hanya perusahaan Tbk yang laporan keuangannya publik (IDX). Isi data ini secara manual atau lewat impor.</li>
+        <li><b>Google Maps</b>: tautan "Cari di Google Maps" di tab Deteksi membuka pencarian PT, CV, pabrik, dan lainnya di sekitar kantor, gratis tanpa API key. Perusahaan yang ditemukan di sana bisa dimasukkan sebagai prospek dengan menempel koordinat atau tautan tempatnya.</li>
         <li><b>Pencarian alamat</b> saat impor memakai OpenStreetMap Nominatim (maksimal 1 alamat per detik).</li>
       </ul>
       <h3>Privasi dan kepatuhan</h3>

@@ -170,6 +170,8 @@ test('koordinat', () => {
   assert.deepEqual(U.parseLatLonPair('-6.2088, 106.8456'), [-6.2088, 106.8456]);
   assert.deepEqual(U.parseLatLonPair('-6,2088; 106,8456'), [-6.2088, 106.8456]);
   assert.deepEqual(U.parseLatLonPair('https://www.google.com/maps/@-6.2088,106.8456,17z'), [-6.2088, 106.8456]);
+  // Tautan tempat: koordinat tempat (!3d/!4d) dipakai, bukan pusat layar (@)
+  assert.deepEqual(U.parseLatLonPair('https://www.google.com/maps/place/PT+Maju/@-7.10,110.30,15z/data=!4m6!3m5!1s0x0:0x0!8m2!3d-7.1386!4d110.4053'), [-7.1386, 110.4053]);
   assert.deepEqual(U.fixLatLon(106.8456, -6.2088), [-6.2088, 106.8456], 'tertukar diperbaiki');
   assert.equal(U.fixLatLon(0, 0), null);
   assert.equal(U.parseLatLonPair('Jl. Sudirman'), null);
@@ -278,6 +280,13 @@ test('pengaturan dan URL', () => {
   assert.equal(s.entityFilter.PT, true);
   assert.equal(s.unknownKey, undefined);
   assert.deepEqual(U.mergeSettings({ radii: [5, 1, 2] }).radii, [1, 5, 10]);
+  assert.equal(U.mergeSettings(null).maxRadius, 20);
+  assert.equal(U.mergeSettings({ maxRadius: 35 }).maxRadius, 35);
+  assert.equal(U.mergeSettings({ radii: [1, 5, 25], maxRadius: 20 }).maxRadius, 30, 'jangkauan dinaikkan di atas zona hijau');
+  assert.equal(U.mergeSettings({ maxRadius: 500 }).maxRadius, 20);
+  assert.equal(U.validateMaxRadius(20, 10), null);
+  assert.ok(U.validateMaxRadius(10, 10));
+  assert.ok(U.validateMaxRadius(60, 10));
   assert.equal(U.safeUrl('www.contoh.co.id'), 'https://www.contoh.co.id/');
   assert.equal(U.safeUrl('javascript:alert(1)'), '');
   assert.equal(U.esc('<b>"x"</b>'), '&lt;b&gt;&quot;x&quot;&lt;/b&gt;');

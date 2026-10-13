@@ -9,12 +9,14 @@ Aplikasi ini alat bantu pribadi, bukan aplikasi resmi BNI.
 | Merah | 0–1 km |
 | Oranye | 1–5 km |
 | Hijau | 5–10 km |
+| Luar zona | di atas 10 km, tetap ditampilkan sebagai bahan pertimbangan sampai jangkauan maksimal (bawaan 20 km, bisa sampai 50 km) |
 
 ## Fitur
 
 - **Peta kantor BNI se-Indonesia** dari OpenStreetMap: KC, KCP, KK, dan Kanwil, dengan pencarian dan filter jenis kantor. Daftar resmi kantor bisa diimpor dari Excel.
 - **Deteksi otomatis badan usaha** di sekitar kantor yang dipilih: PT, CV, UD, PD, Firma, dan koperasi. PT Tbk dan BUMN/Persero tersembunyi secara bawaan karena biasanya di atas target plafond, tetapi bisa ditampilkan dengan satu klik. Opsional: pabrik, gudang, grosir, dealer, hotel, SPBU, dan rumah sakit yang tidak berlabel PT/CV.
 - **Mode area**: tanpa kantor aktif, geser peta ke kawasan mana pun dan zona dihitung dari kantor BNI terdekat.
+- **Jembatan ke Google Maps (gratis)**: tautan "Cari di Google Maps" membuka pencarian PT, CV, UD, pabrik, gudang, dan distributor di sekitar kantor. Perusahaan yang ditemukan bisa dimasukkan dengan menempel koordinat atau tautan Google Maps-nya.
 - **Detail perusahaan**: kategori usaha, alamat, telepon, situs web, kantor BNI terdekat, serta tautan riset ke Google Maps, Street View, Google, AHU Online, LinkedIn, dan IDX (untuk Tbk).
 - **Pipeline kredit**: status (baru → dihubungi → kunjungan → pengajuan → disetujui/ditolak), estimasi plafond dengan tanda "sesuai target", produk KMK/KI, jadwal follow-up, PIC, dan catatan.
 - **Struktur organisasi**: isi pemegang saham, komisaris, direksi, atau sekutu CV; bagan tersusun otomatis.
@@ -46,13 +48,16 @@ Aplikasi membutuhkan internet untuk peta dan data OpenStreetMap. Jika jaringan k
 2. Pilih kantor: klik penanda di peta, cari di tab **Cabang**, atau tekan **Lokasi saya** untuk melihat kantor terdekat.
 3. Tab **Deteksi** menampilkan jumlah usaha per zona. Klik kotak zona atau chip badan usaha untuk menyaring.
 4. Klik perusahaan untuk membuka detail. Isian apa pun otomatis menyimpan perusahaan ke tab **Prospek saya**.
-5. Perusahaan yang belum ada di peta bisa ditambahkan dengan tombol **+ Prospek** lalu ketuk lokasinya, atau diimpor dari Excel.
+5. Perusahaan yang belum ada di peta bisa ditambahkan dengan tombol **+ Prospek**, lalu ketuk lokasinya atau tempel koordinat/tautan dari Google Maps. Bisa juga diimpor dari Excel.
+   - Di aplikasi Google Maps HP: tekan lama lokasi perusahaan, salin koordinat yang muncul, lalu tempel.
+   - Di Google Maps desktop: buka tempatnya, lalu salin alamat dari address bar browser (tautan yang memuat `!3d…!4d…` atau `@lat,lon`).
 6. Unduh **cadangan** secara berkala dari **Pengaturan**, karena data hanya tersimpan di browser perangkat tersebut.
 
 ## Sumber data dan keterbatasannya
 
 - **Kantor BNI dan badan usaha** berasal dari [OpenStreetMap](https://www.openstreetmap.org/copyright) (© kontributor OpenStreetMap, lisensi ODbL) melalui Overpass API. Data diisi sukarelawan sehingga tidak semua kantor dan perusahaan tercatat, terutama PT/CV kecil di luar kota besar. Tambahkan prospek secara manual atau impor dari Excel untuk melengkapi. Kantor BNI dapat diganti dengan daftar resmi melalui impor.
 - **Struktur organisasi dan laporan keuangan tidak tersedia gratis** untuk perusahaan tertutup, sehingga tidak bisa dideteksi otomatis. Sumber resmi data pengurus dan pemegang saham adalah AHU Online Kementerian Hukum (berbayar per perusahaan). Laporan keuangan diperoleh dari calon debitur. Hanya perusahaan Tbk yang laporan keuangannya publik di IDX. Aplikasi menyediakan formulir dan impor Excel untuk data ini.
+- **Google Maps** dipakai lewat tautan saja (gratis). Integrasi langsung dengan Google Places API memang mungkin, tetapi butuh akun Google Cloud dengan kartu kredit dan API key. Biayanya: 5.000 pencarian gratis per bulan (Text Search Pro), lalu sekitar US$32 per 1.000 pencarian. Satu pencarian hanya mengembalikan maksimal 20 hasil (60 dengan halaman lanjutan), jadi menyisir radius 10 km perlu puluhan sampai ratusan pencarian per kantor. Aturan Google juga melarang data Places ditampilkan di peta selain Google Maps, disimpan permanen (kecuali Place ID), atau diekspor massal ke Excel.
 - **Pencarian koordinat dari alamat** memakai OpenStreetMap Nominatim, dibatasi 1 alamat per detik. Hasil yang hanya akurat sampai tingkat kelurahan/kota ditandai "lokasi perkiraan".
 - **Citra satelit** (opsi lapisan peta) dari Esri World Imagery.
 

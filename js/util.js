@@ -56,6 +56,7 @@
 
   var DEFAULT_SETTINGS = {
     radii: [1, 5, 10],
+    maxRadius: 20,
     targetMin: 1e9,
     targetMax: 25e9,
     includeOthers: false,
@@ -780,9 +781,12 @@
   }
 
   // "-6.2088, 106.8456", "-6,2088; 106,8456", tautan Google Maps ".../@-6.2088,106.8456,17z".
+  // Tautan tempat Google Maps ("...!3d-6.2088!4d106.8456") memakai titik tempatnya, bukan pusat layar.
   function parseLatLonPair(v) {
     if (v == null || v === '') return null;
     var s = String(v).replace(/−/g, '-');
+    var place = s.match(/!3d(-?\d{1,3}\.\d+)!4d(-?\d{1,3}\.\d+)/);
+    if (place) return fixLatLon(parseFloat(place[1]), parseFloat(place[2]));
     var m = s.match(/(-?\d{1,3}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)/);
     if (!m) m = s.match(/(-?\d{1,3}(?:[.,]\d+)?)\s*[;\s]\s*(-?\d{1,3}(?:[.,]\d+)?)/);
     if (!m) return null;
@@ -1303,6 +1307,13 @@
     });
   }
 
+  function validateMaxRadius(max, r3) {
+    if (!(max > 0)) return 'Isi jangkauan maksimal deteksi.';
+    if (!(max > r3)) return 'Jangkauan maksimal harus lebih besar dari batas zona hijau.';
+    if (max > 50) return 'Jangkauan maksimal 50 km agar deteksi tetap ringan.';
+    return null;
+  }
+
   function validateRadii(r) {
     if (!Array.isArray(r) || r.length !== 3) return 'Isi tiga radius zona.';
     for (var i = 0; i < 3; i++) if (!(r[i] > 0)) return 'Radius zona harus lebih dari 0 km.';
@@ -1323,6 +1334,8 @@
       }
     });
     if (validateRadii(s.radii)) s.radii = DEFAULT_SETTINGS.radii.slice();
+    s.maxRadius = +s.maxRadius;
+    if (validateMaxRadius(s.maxRadius, s.radii[2])) s.maxRadius = Math.min(50, Math.max(DEFAULT_SETTINGS.maxRadius, s.radii[2] + 5));
     return s;
   }
 
@@ -1358,7 +1371,8 @@
     normStatus: normStatus, normProduk: normProduk, parseBool: parseBool, splitPeople: splitPeople, addPerson: addPerson,
     addFinance: addFinance, convertProspectSheets: convertProspectSheets, convertBranchSheet: convertBranchSheet,
     newProfile: newProfile, applyRecord: applyRecord, matchProfile: matchProfile, inTarget: inTarget,
-    financeView: financeView, ratiosFor: ratiosFor, orgLevels: orgLevels, validateRadii: validateRadii, mergeSettings: mergeSettings,
+    financeView: financeView, ratiosFor: ratiosFor, orgLevels: orgLevels, validateRadii: validateRadii,
+    validateMaxRadius: validateMaxRadius, mergeSettings: mergeSettings,
     safeUrl: safeUrl, FIN_KEYS: FIN_KEYS
   };
 });

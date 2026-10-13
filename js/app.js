@@ -145,7 +145,18 @@
 
   function radiiText(r) {
     function f(n) { return String(n).replace('.', ','); }
-    return { r1: f(r[0]), r2: f(r[1]), r3: f(r[2]) };
+    return { r1: f(r[0]), r2: f(r[1]), r3: f(r[2]), rmax: f(state.settings.maxRadius) };
+  }
+
+  // Pencarian Google Maps di sekitar titik (tanpa API, membuka situs/aplikasi Google Maps).
+  function gmapsSearchUrl(term, lat, lon, zoom) {
+    return 'https://www.google.com/maps/search/' + encodeURIComponent(term) + '/@' + (+lat).toFixed(6) + ',' + (+lon).toFixed(6) + ',' + (zoom || 13) + 'z';
+  }
+
+  function gmapsLinksHTML(lat, lon) {
+    return '<span class="gm-links">Cari di Google Maps: ' + ['PT', 'CV', 'UD', 'Pabrik', 'Gudang', 'Distributor'].map(function (t) {
+      return '<a href="' + esc(gmapsSearchUrl(t, lat, lon, 13)) + '" target="_blank" rel="noopener">' + t + '</a>';
+    }).join(' · ') + '</span>';
   }
 
   // ---------------------------------------------------------------------------
@@ -176,9 +187,11 @@
       lg.querySelector('[data-r="1"]').textContent = '≤ ' + t.r1 + ' km';
       lg.querySelector('[data-r="2"]').textContent = t.r1 + '–' + t.r2 + ' km';
       lg.querySelector('[data-r="3"]').textContent = t.r2 + '–' + t.r3 + ' km';
+      lg.querySelector('[data-r="4"]').textContent = '> ' + t.r3 + ' km';
     }
     $('helpZones').textContent = 'Merah: sampai ' + t.r1 + ' km dari kantor BNI. Oranye: ' + t.r1 + '–' + t.r2 +
-      ' km. Hijau: ' + t.r2 + '–' + t.r3 + ' km. Usaha yang lebih jauh tidak ditampilkan saat kantor aktif, dan ditandai abu-abu pada deteksi area.';
+      ' km. Hijau: ' + t.r2 + '–' + t.r3 + ' km. Luar zona: lebih dari ' + t.r3 + ' km; tetap ditampilkan sebagai bahan pertimbangan sampai jangkauan maksimal ' +
+      t.rmax + ' km dari kantor aktif (bisa diubah di Pengaturan).';
   }
 
   // ---------------------------------------------------------------------------
@@ -234,6 +247,7 @@
           '<div class="legend-row"><i class="sw red"></i><span>Merah</span><b data-r="1"></b></div>' +
           '<div class="legend-row"><i class="sw orange"></i><span>Oranye</span><b data-r="2"></b></div>' +
           '<div class="legend-row"><i class="sw green"></i><span>Hijau</span><b data-r="3"></b></div>' +
+          '<div class="legend-row"><i class="sw out"></i><span>Luar zona</span><b data-r="4"></b></div>' +
           '<div class="legend-row"><i class="sw bank"></i><span>Kantor BNI</span></div>' +
           '<div class="legend-row"><i class="sw saved"></i><span>Prospek saya</span></div>';
         L.DomEvent.disableClickPropagation(div);
@@ -332,10 +346,10 @@
     if (state.activeBranch) {
       var b = state.activeBranch;
       var t = radiiText(r);
-      [['red', r[0], t.r1], ['orange', r[1], t.r2], ['green', r[2], t.r3]].forEach(function (z) {
+      [['red', r[0], t.r1], ['orange', r[1], t.r2], ['green', r[2], t.r3], ['out', state.settings.maxRadius, t.rmax]].forEach(function (z) {
         L.circle([b.lat, b.lon], {
           radius: z[1] * 1000, renderer: renderers.lines, fill: false, color: colors[z[0]],
-          weight: 2, dashArray: '6 5', interactive: false
+          weight: z[0] === 'out' ? 1.5 : 2, dashArray: z[0] === 'out' ? '2 6' : '6 5', interactive: false
         }).addTo(layers.zoneLines);
         L.marker([b.lat + z[1] / 110.57, b.lon], {
           pane: 'zoneLines', interactive: false, keyboard: false,
@@ -459,8 +473,9 @@
     $('btnDetectAreaText').textContent = ok ? 'Deteksi PT/CV di area ini' : 'Perbesar peta untuk deteksi';
   }
 
+  // Bingkai peta pada zona hijau (plus sedikit area luar zona); luar zona yang lebih jauh tetap bisa digeser.
   function fitToRadius(b) {
-    var R = state.settings.radii[2] * 1000;
+    var R = Math.min(state.settings.radii[2] * 1.15, state.settings.maxRadius) * 1000;
     var bounds = L.latLng(b.lat, b.lon).toBounds(R * 2);
     var pad = isMobile() ? [10, 10] : [30, 30];
     map.fitBounds(bounds, { paddingTopLeft: pad, paddingBottomRight: pad, maxZoom: 15 });
@@ -585,7 +600,8 @@
     if (!b) return;
     var t = U.BRANCH_TYPES.find(function (x) { return x.id === b.type; });
     $('activeName').textContent = b.name;
-    $('activeMeta').textContent = (t ? t.long : 'Kantor BNI') + ' · radius ' + radiiText(state.settings.radii).r3 + ' km';
+    var rt = radiiText(state.settings.radii);
+    $('activeMeta').textContent = (t ? t.long : 'Kantor BNI') + ' · zona ' + rt.r3 + ' km · jangkauan ' + rt.rmax + ' km';
   }
 
   function inBBox(c, b) {
@@ -597,7 +613,7 @@
     var ctx, bbox;
     if (state.activeBranch) {
       var b = state.activeBranch;
-      var R = state.settings.radii[2];
+      var R = state.settings.maxRadius;
       bbox = U.bboxAround(b.lat, b.lon, R);
       ctx = { kind: 'branch', branchId: b.id, label: 'Sekitar ' + b.name, refName: b.name, lat: b.lat, lon: b.lon, radius: R };
     } else {
@@ -689,7 +705,7 @@
         list.push(item);
       };
       state.rawResults.forEach(function (c) {
-        if (ctx.kind === 'branch' && U.haversineKm(ctx.lat, ctx.lon, c.lat, c.lon) > r[2]) return;
+        if (ctx.kind === 'branch' && U.haversineKm(ctx.lat, ctx.lon, c.lat, c.lon) > ctx.radius) return;
         if (ctx.kind === 'area' && !inBBox(c, ctx.bbox)) return;
         add(c);
         seen.add(c.id);
@@ -698,7 +714,7 @@
       Object.keys(state.profiles).forEach(function (id) {
         var p = state.profiles[id];
         if (seen.has(id) || p.lat == null || !p.name) return;
-        if (ctx.kind === 'branch' && U.haversineKm(ctx.lat, ctx.lon, p.lat, p.lon) > r[2]) return;
+        if (ctx.kind === 'branch' && U.haversineKm(ctx.lat, ctx.lon, p.lat, p.lon) > ctx.radius) return;
         if (ctx.kind === 'area' && !inBBox(p, ctx.bbox)) return;
         add(profileAsCompany(p), p);
       });
@@ -894,11 +910,13 @@
     if (b) {
       var addr = [b.address, b.city].filter(Boolean).join(', ');
       head = '<strong>Sekitar ' + esc(b.name) + '</strong><span>' + esc(addr || 'Alamat kantor belum tercatat') +
-        ' · radius ' + t.r3 + ' km · <a href="https://www.google.com/maps/search/?api=1&query=' + b.lat + ',' + b.lon +
-        '" target="_blank" rel="noopener">Google Maps</a></span>';
+        ' · zona ' + t.r3 + ' km, jangkauan ' + t.rmax + ' km · <a href="https://www.google.com/maps/search/?api=1&query=' + b.lat + ',' + b.lon +
+        '" target="_blank" rel="noopener">Lokasi kantor</a></span>' + gmapsLinksHTML(b.lat, b.lon);
     } else if (ctx && ctx.kind === 'area') {
+      var mc = map.getCenter();
       head = '<strong>Area peta saat ini</strong><span>Zona dihitung dari kantor BNI terdekat. Geser peta untuk area lain' +
-        (state.settings.autoDetect ? '; deteksi berjalan otomatis pada zoom dekat.' : ', lalu tekan Deteksi.') + '</span>';
+        (state.settings.autoDetect ? '; deteksi berjalan otomatis pada zoom dekat.' : ', lalu tekan Deteksi.') + '</span>' +
+        gmapsLinksHTML(mc.lat, mc.lng);
     } else {
       head = '<strong>Pilih kantor BNI</strong><span>Klik penanda kantor di peta atau cari di tab Cabang. PT, CV, dan badan usaha lain di sekitarnya terdeteksi otomatis.</span>';
     }
@@ -914,10 +932,14 @@
     var zc = { red: 0, orange: 0, green: 0, out: 0 };
     base.forEach(function (c) { zc[c.zone]++; });
     if (hasCtx) {
-      var labels = { red: '≤ ' + t.r1 + ' km', orange: t.r1 + '–' + t.r2 + ' km', green: t.r2 + '–' + t.r3 + ' km' };
-      $('zoneTally').innerHTML = ['red', 'orange', 'green'].map(function (z) {
-        return '<button type="button" class="z-' + z + '" data-zone="' + z + '" aria-pressed="' + (state.zoneFilter[z] !== false) + '">' +
-          '<span class="n">' + U.formatCount(zc[z]) + '</span><span class="l">' + U.ZONE_LABEL[z] + ' · ' + labels[z] + '</span></button>';
+      var labels = {
+        red: '≤ ' + t.r1 + ' km', orange: t.r1 + '–' + t.r2 + ' km', green: t.r2 + '–' + t.r3 + ' km',
+        out: ctx.kind === 'branch' ? t.r3 + '–' + t.rmax + ' km' : '> ' + t.r3 + ' km'
+      };
+      $('zoneTally').innerHTML = ['red', 'orange', 'green', 'out'].map(function (z) {
+        return '<button type="button" class="z-' + z + '" data-zone="' + z + '" aria-pressed="' + (state.zoneFilter[z] !== false) + '"' +
+          ' title="' + (state.zoneFilter[z] !== false ? 'Sembunyikan' : 'Tampilkan') + ' zona ' + U.ZONE_LABEL[z].toLowerCase() + '">' +
+          '<span class="n">' + U.formatCount(zc[z]) + '</span><span class="l">' + U.ZONE_LABEL[z] + '</span><span class="r">' + labels[z] + '</span></button>';
       }).join('');
     } else {
       $('zoneTally').innerHTML = '';
@@ -936,8 +958,6 @@
     // Pemberitahuan
     var notice = '';
     if (state.resultsError && state.results.length) notice = 'Sebagian data gagal dimuat: ' + esc(state.resultsError) + ' <button type="button" data-action="retry-detect">Coba lagi</button>';
-    else if (hasCtx && zc.out && state.zoneFilter.out !== false) notice = U.formatCount(zc.out) + ' usaha berada di luar ' + t.r3 + ' km dari kantor BNI mana pun (titik abu-abu). <button type="button" data-action="hide-out">Sembunyikan</button>';
-    else if (hasCtx && zc.out && state.zoneFilter.out === false) notice = U.formatCount(zc.out) + ' usaha di luar zona disembunyikan. <button type="button" data-action="show-out">Tampilkan</button>';
     var hiddenEnt = state.results.filter(function (c) { return ef[c.entity] === false; }).length;
     if (!notice && hiddenEnt) notice = U.formatCount(hiddenEnt) + ' hasil disembunyikan oleh filter badan usaha (mis. PT Tbk dan BUMN yang biasanya di atas target plafond).';
     $('detectNotice').innerHTML = notice;
@@ -1233,6 +1253,8 @@
         '</div>');
       if (p.lat == null) html.push('<p class="d-note warn">Prospek ini belum punya lokasi sehingga tidak tampil di peta dan zonanya belum diketahui.</p>');
       else if (p.geo === 'approx') html.push('<p class="d-note warn">Lokasi diperkirakan dari alamat dan mungkin kurang tepat. Pindahkan titik bila perlu.</p>');
+      html.push('<div class="coord-paste"><input type="text" id="coordPaste" placeholder="Tempel koordinat / link Google Maps" aria-label="Tempel koordinat atau link Google Maps" autocomplete="off">' +
+        '<button type="button" class="btn small" data-action="apply-coord">Pakai</button></div>');
       html.push('<div class="btn-row"><button type="button" class="btn small" data-action="move-point"><svg class="i"><use href="#i-move"/></svg>' +
         (p.lat == null ? 'Tentukan lokasi di peta' : 'Pindahkan titik') + '</button></div>');
     }
@@ -1509,6 +1531,22 @@
         p = dossierItem.profile;
         if (p) startPick('move', p.id);
         break;
+      case 'apply-coord':
+        p = dossierItem.profile;
+        if (!p) return;
+        var ll = U.parseLatLonPair($('coordPaste').value);
+        if (!ll) {
+          toast('Koordinat tidak dikenali. Contoh: -7.1386, 110.4053, atau tautan Google Maps yang memuat koordinat.', { error: true });
+          return;
+        }
+        p.lat = ll[0];
+        p.lon = ll[1];
+        p.geo = 'exact';
+        touch(p);
+        computeResults();
+        openDossier(p.id, { zoom: 15 });
+        toast('Lokasi prospek diperbarui.');
+        break;
     }
   }
 
@@ -1538,9 +1576,27 @@
 
   function onMapClick(e) {
     if (!state.pick) return;
+    placePick(e.latlng.lat, e.latlng.lng);
+  }
+
+  // Koordinat atau tautan Google Maps yang ditempel di spanduk "ketuk lokasi".
+  function onPickPaste(e) {
+    e.preventDefault();
+    var ll = U.parseLatLonPair($('pickCoord').value);
+    if (!ll) {
+      toast('Koordinat tidak dikenali. Contoh: -7.1386, 110.4053, atau tautan Google Maps yang memuat koordinat.', { error: true });
+      return;
+    }
+    $('pickCoord').value = '';
+    placePick(ll[0], ll[1]);
+    ensureVisible(ll[0], ll[1], 15);
+  }
+
+  function placePick(rawLat, rawLon) {
     var pick = state.pick;
+    if (!pick) return;
     cancelPick();
-    var lat = U.round6(e.latlng.lat), lon = U.round6(e.latlng.lng);
+    var lat = U.round6(rawLat), lon = U.round6(rawLon);
     if (pick.kind === 'new') {
       var p = U.newProfile({ name: '', entity: 'PT', lat: lat, lon: lon, geo: 'exact' }, 'manual');
       state.profiles[p.id] = p;
@@ -1618,6 +1674,7 @@
     $('setR1').value = s.radii[0];
     $('setR2').value = s.radii[1];
     $('setR3').value = s.radii[2];
+    $('setRMax').value = s.maxRadius;
     $('setTMin').value = s.targetMin / 1e9;
     $('setTMax').value = s.targetMax / 1e9;
     $('setOthers').checked = !!s.includeOthers;
@@ -1643,7 +1700,8 @@
     var submitter = e.submitter;
     if (!submitter || submitter.value !== 'save') return;
     var r = [parseFloat($('setR1').value), parseFloat($('setR2').value), parseFloat($('setR3').value)];
-    var err = U.validateRadii(r);
+    var rMax = parseFloat($('setRMax').value);
+    var err = U.validateRadii(r) || U.validateMaxRadius(rMax, r[2]);
     var tMin = parseFloat($('setTMin').value), tMax = parseFloat($('setTMax').value);
     if (!err && !(tMin >= 0 && tMax > tMin)) err = 'Target maksimal harus lebih besar dari minimal.';
     if (err) {
@@ -1653,11 +1711,12 @@
       return;
     }
     var s = state.settings;
-    var radiiChanged = r.join() !== s.radii.join();
+    var radiiChanged = r.join() !== s.radii.join() || rMax !== s.maxRadius;
     var othersChanged = $('setOthers').checked !== s.includeOthers;
     var sourceChanged = $('setBranchSource').value !== s.branchSource;
     var themeChanged = $('setTheme').value !== s.theme;
     s.radii = r;
+    s.maxRadius = rMax;
     s.targetMin = Math.round(tMin * 1e9);
     s.targetMax = Math.round(tMax * 1e9);
     s.includeOthers = $('setOthers').checked;
@@ -2006,8 +2065,6 @@
       case 'more-prospects': state.prospectLimit += 150; renderProspects(); break;
       case 'reload-branches': loadOsmBranches(true); break;
       case 'retry-detect': runDetection({ manual: true }); break;
-      case 'hide-out': state.zoneFilter.out = false; renderResultMarkers(); renderResults(); updateCounts(); break;
-      case 'show-out': state.zoneFilter.out = true; renderResultMarkers(); renderResults(); updateCounts(); break;
       case 'goto-cabang': setTab('cabang'); $('branchSearch').focus(); break;
       case 'include-others':
         state.settings.includeOthers = true;
@@ -2056,6 +2113,7 @@
     $('btnAddProspect').addEventListener('click', function () { startPick('new'); });
     $('btnAddProspect2').addEventListener('click', function () { startPick('new'); });
     $('btnPickCancel').addEventListener('click', cancelPick);
+    $('pickPaste').addEventListener('submit', onPickPaste);
     $('btnDetectArea').addEventListener('click', function () { runDetection({ manual: true }); });
     $('btnClearBranch').addEventListener('click', clearBranch);
     $('btnLocate').addEventListener('click', locateMe);

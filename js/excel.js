@@ -100,6 +100,12 @@
 
   function osmLink(c) { return c.osm ? 'https://www.openstreetmap.org/' + c.osm : ''; }
 
+  function zoneLabel(zone, settings) {
+    if (!zone) return '';
+    if (zone === 'out') return 'Luar zona (> ' + settings.radii[2] + ' km)';
+    return U.ZONE_LABEL[zone] || '';
+  }
+
   async function exportResults(results, ctx, settings) {
     var XLSX = await ensureXLSX();
     var header = ['No', 'Zona', 'Jarak (km)', 'Nama', 'Badan usaha', 'Kategori', 'Alamat', 'Telepon', 'Email', 'Situs web',
@@ -109,7 +115,7 @@
       var p = c.profile;
       return {
         'No': i + 1,
-        'Zona': U.ZONE_LABEL[c.zone] || '',
+        'Zona': zoneLabel(c.zone, settings),
         'Jarak (km)': r2(c.dist),
         'Nama': c.name,
         'Badan usaha': U.ENTITY_LABEL[c.entity] || c.entity,
@@ -136,20 +142,21 @@
     var ents = U.ENTITIES.map(function (e) { return e.id; });
     var summary = [
       ['Acuan', ctx.label],
-      ['Radius zona (km)', 'Merah ≤ ' + settings.radii[0] + ' · Oranye ≤ ' + settings.radii[1] + ' · Hijau ≤ ' + settings.radii[2]],
+      ['Radius zona (km)', 'Merah ≤ ' + settings.radii[0] + ' · Oranye ≤ ' + settings.radii[1] + ' · Hijau ≤ ' + settings.radii[2] +
+        ' · Luar zona ≤ ' + settings.maxRadius + ' (dari kantor aktif)'],
       ['Diekspor', U.isoDate(new Date())],
       ['Sumber data', 'OpenStreetMap (© kontributor OpenStreetMap) dan data prospek Anda'],
       [],
-      ['Badan usaha', 'Merah', 'Oranye', 'Hijau', 'Total']
+      ['Badan usaha', 'Merah', 'Oranye', 'Hijau', 'Luar zona', 'Total']
     ];
     ents.forEach(function (id) {
       var list = results.filter(function (c) { return c.entity === id; });
       if (!list.length) return;
       var count = function (z) { return list.filter(function (c) { return c.zone === z; }).length; };
-      summary.push([U.ENTITY_LABEL[id], count('red'), count('orange'), count('green'), list.length]);
+      summary.push([U.ENTITY_LABEL[id], count('red'), count('orange'), count('green'), count('out'), list.length]);
     });
     var ws2 = XLSX.utils.aoa_to_sheet(summary);
-    ws2['!cols'] = [{ wch: 20 }, { wch: 48 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
+    ws2['!cols'] = [{ wch: 20 }, { wch: 60 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }];
     XLSX.utils.book_append_sheet(wb, ws2, 'Ringkasan');
     writeBook(XLSX, wb, 'deteksi-' + slug(ctx.label) + '-' + U.isoDate(new Date()) + '.xlsx');
   }
@@ -182,7 +189,7 @@
         'Longitude': p.lon != null ? p.lon : '',
         'Kantor BNI terdekat': x.nearest ? x.nearest.name : '',
         'Jarak (km)': x.nearest ? r2(x.nearest.dist) : '',
-        'Zona': x.zone ? U.ZONE_LABEL[x.zone] : '',
+        'Zona': zoneLabel(x.zone, settings),
         'Nasabah BNI': p.isNasabah ? 'Ya' : 'Tidak',
         'Follow-up': p.followUp || '',
         'Catatan': p.catatan || '',
