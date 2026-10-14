@@ -62,6 +62,7 @@
     includeOthers: false,
     autoDetect: true,
     branchSource: 'both',
+    overture: true,
     overpass: 'auto',
     theme: 'auto',
     baseLayer: 'osm',
@@ -299,6 +300,7 @@
       'nwr["amenity"="bank"]["name"~' + re + ',i](' + b + ');' +
       'nwr["amenity"="bank"]["brand"~' + re + ',i](' + b + ');' +
       'nwr["amenity"="bank"]["operator"~' + re + ',i](' + b + ');' +
+      'nwr["amenity"="bank"]["brand:wikidata"="' + BNI_WIKIDATA + '"](' + b + ');' +
       ');out center tags;';
   }
 
@@ -516,17 +518,34 @@
     return out;
   }
 
+  var BNI_WIKIDATA = 'Q2882611';
   var BNI_RE = /(^|[^a-z])bni([^a-z]|$)|bank negara indonesia/i;
-  var BNI_EXCLUDE = /syariah|sharia|(^|[^a-z])atm([^a-z]|$)|bni life|life insurance|sekuritas|securities|ventura|multi ?finance|remittance|agen ?46|agen bni|laku pandai|(^|[^a-z])bsi([^a-z]|$)/i;
+  // Bukan kantor bank BNI: unit syariah lama (kini BSI), anak usaha, agen, dan fasilitas lain.
+  var BNI_EXCLUDE = /syariah|sharia|bni life|life insurance|asuransi|insurance|sekuritas|securities|ventura|ventures|multi ?finance|remittance|agen ?46|agen bni|laku pandai|(^|[^a-z])bsi([^a-z]|$)|koperasi|swadharma|lounge|card cent|dana pensiun|yayasan/i;
+  var ATM_RE = /(^|[^a-z])(atm|crm|anjungan tunai)([^a-z]|$)/i;
+  var BRANCH_MARK_RE = /(^|[^a-z])(kc|kcp|kcu|kk|kln|kanwil|capem|cab)([^a-z]|$)|kantor|cabang/i;
   var GENERIC_BRANCH_NAMES = ['bni', 'bankbni', 'bni46', 'bankbni46', 'banknegaraindonesia', 'banknegaraindonesiapersero',
-    'banknegaraindonesiaperserotbk', 'ptbanknegaraindonesia', 'ptbanknegaraindonesiapersero', 'ptbanknegaraindonesiaperserotbk'];
+    'banknegaraindonesiaperserotbk', 'ptbanknegaraindonesia', 'ptbanknegaraindonesiapersero', 'ptbanknegaraindonesiaperserotbk',
+    'banknegaraindonesia1946', 'bnibank'];
+
+  // Kantor BNI (bukan ATM, agen, atau anak usaha). Teks boleh berisi beberapa nama dipisah "|".
+  // "ATM BNI ..." dan "BNI ATM ..." adalah mesin; "BNI KCP Undip & ATM" tetap kantor.
+  function isBniOffice(text) {
+    var s = String(text || '');
+    if (!BNI_RE.test(s) || BNI_EXCLUDE.test(s)) return false;
+    if (!ATM_RE.test(s)) return true;
+    var machine = s.split('|').some(function (part) {
+      return /^\W*(atm|crm|anjungan)/i.test(part) || /^\W*(bank\W+)?bni\W+(46\W+)?(atm|crm)/i.test(part);
+    });
+    return !machine && BRANCH_MARK_RE.test(s.replace(ATM_RE, ' '));
+  }
 
   function branchType(text) {
     var s = ' ' + String(text || '').toLowerCase() + ' ';
-    if (/[^a-z]kcp[^a-z]|cabang pembantu/.test(s)) return 'KCP';
+    if (/[^a-z](kcp|capem)[^a-z]|cabang pembantu/.test(s)) return 'KCP';
     if (/[^a-z]kk[^a-z]|kantor kas/.test(s)) return 'KK';
     if (/kanwil|kantor wilayah/.test(s)) return 'Kanwil';
-    if (/[^a-z](kc|kcu)[^a-z]|kantor cabang|cabang utama|[^a-z]cabang[^a-z]/.test(s)) return 'KC';
+    if (/[^a-z](kc|kcu|cab)[^a-z]|kantor cabang|cabang utama|[^a-z]cabang[^a-z]/.test(s)) return 'KC';
     return 'Kantor';
   }
 
@@ -541,8 +560,14 @@
     return branchType(name);
   }
 
+  function isGenericBranchName(name) {
+    return GENERIC_BRANCH_NAMES.indexOf(normKey(name)) >= 0;
+  }
+
   function branchDisplayName(raw, t) {
-    if (GENERIC_BRANCH_NAMES.indexOf(normKey(raw)) >= 0) {
+    if (isGenericBranchName(raw)) {
+      var br = normSpace(t.branch || '');
+      if (br) return BNI_RE.test(br) ? br : 'BNI ' + br;
       var loc = t['addr:street'] || t['addr:village'] || t['addr:subdistrict'] || t['addr:district'] || t['addr:city'] || '';
       return loc ? 'BNI ' + normSpace(loc) : 'BNI';
     }
@@ -555,15 +580,19 @@
       var t = el.tags || {};
       var ll = elementLatLon(el);
       if (!ll) return;
-      var text = [t.name, t.brand, t.operator, t['name:id'], t.official_name, t['name:en']].filter(Boolean).join(' | ');
-      if (!BNI_RE.test(text) || BNI_EXCLUDE.test(text)) return;
+      var text = [t.name, t.brand, t.operator, t['name:id'], t.official_name, t['name:en'], t.branch].filter(Boolean).join(' | ');
+      if (t['brand:wikidata'] === BNI_WIKIDATA && !BNI_RE.test(text)) text += ' | BNI';
+      if (!isBniOffice(text)) return;
       var raw = normSpace(t.name || t['name:id'] || t.official_name || t.brand || 'BNI');
+      var alt = uniq([t.official_name, t.alt_name, t.old_name, t.short_name, t['name:id'], t.branch].filter(Boolean).map(normSpace))
+        .filter(function (x) { return x !== raw; });
       out.push({
         id: 'osm:' + el.type.charAt(0) + el.id,
         osm: el.type + '/' + el.id,
         source: 'osm',
         name: branchDisplayName(raw, t),
-        type: branchType([raw, t.official_name, t.description].filter(Boolean).join(' ')),
+        alt: alt.join(' | '),
+        type: branchType([raw, t.branch, t.official_name, t.description].filter(Boolean).join(' ')),
         lat: round6(ll[0]),
         lon: round6(ll[1]),
         address: formatAddress(t),
@@ -571,6 +600,7 @@
         phone: firstTag(t, ['phone', 'contact:phone']),
         hours: t.opening_hours || ''
       });
+      if (isGenericBranchName(raw) && !t.branch) out[out.length - 1].generic = true;
     });
     return dedupeBranches(out);
   }
@@ -595,6 +625,176 @@
       (groups[key] = groups[key] || []).push(copy);
     });
     return out;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Kantor BNI dari Overture Maps (data tempat dari Meta, Microsoft, Foursquare)
+  // ---------------------------------------------------------------------------
+
+  // Kata yang boleh mendahului "BNI" dalam nama kantor, mis. "Kantor Cabang BNI Ungaran", "PT Bank Negara Indonesia".
+  var BNI_PREFIX_WORDS = ['pt', 'tbk', 'persero', 'bank', 'kantor', 'cabang', 'pembantu', 'utama', 'kas', 'wilayah', 'layanan',
+    'kc', 'kcp', 'kcu', 'kk', 'kln', 'kanwil', 'capem', 'cab', 'unit', 'gedung', 'menara', 'wisma', 'sentra', 'bisnis', 'kredit',
+    'kecil', 'menengah', 'outlet', 'gerai', 'loket', 'mobil', 'keliling'];
+  // Tempat yang hanya menumpang nama BNI: warung "samping BNI", agen, promo, komunitas, dan sejenisnya.
+  var BNI_NOISE = /samping|sebelah|seberang|depan|belakang|dekat|parkir|warung|kantin|kopi|cafe|caf\u00e9|resto|bakso|toko|store|cell|agen|agent|mitra|marketing|bancassurance|undian|hadiah|gratis|ultah|promo|lowongan|loker|rekrutmen|recruitment|karir|career|komunitas|community|club|alumni|pensiunan|ikatan|persatuan|keluarga|family|seminar|training|diklat|corporate university|rumah dinas|rumdin|mess|asrama|perumahan|residence|apartemen|taman|hutan|lapangan|masjid|musholl?a|gereja|fleksi|wondr|tapcash|expo|pameran|bazar/i;
+  var NON_OFFICE_CATEGORY = /restaurant|cafe|coffee|food|bakery|(^|_)bar$|store|shop|parking|(^|_)park$|historic|residential|apartment|hotel|lodging|place_of_worship|mosque|church|temple/;
+  var CALL_CENTER_PHONE = /1500046|57899999|2511946/;
+  var GENERIC_STREET = /^(jl|jln|jalan)\.?\s+(raya|utama|poros|besar|protokol)$/i;
+  var BRANCH_STOPWORDS = ['bni', 'bank', 'kantor', 'cabang', 'pembantu', 'utama', 'kas', 'kc', 'kcp', 'kcu', 'kk', 'kln', 'capem', 'cab',
+    'unit', 'jalan', 'jl', 'jln', 'raya', 'the', 'pt', 'persero', 'tbk', 'negara', 'indonesia', 'layanan', 'wilayah', 'kanwil'];
+
+  // "BNI" harus menjadi pokok nama, bukan keterangan tempat ("Jagung Bakar Samping BNI").
+  function bniIsSubject(name) {
+    var s = String(name || '').toLowerCase();
+    var m = s.match(/(^|[^a-z])bni([^a-z]|$)|negara indonesia/);
+    if (!m) return false;
+    var before = s.slice(0, m.index + (m[1] ? m[1].length : 0)).split(/[^a-z]+/).filter(Boolean);
+    return before.every(function (w) { return BNI_PREFIX_WORDS.indexOf(w) >= 0; });
+  }
+
+  // "PT Bank Negara Indonesia (Persero) Tbk Cabang Jambi" → "BNI Cabang Jambi"; "Bank Bni 46 Sukajadi" → "BNI Sukajadi".
+  function cleanBniName(name) {
+    var s = normSpace(name)
+      // Nomor WhatsApp/telepon yang ditempel di nama: "BNI KC Klaten l Whatshapp 0816…", "BNI KCP PIM 2 / WA 0812…"
+      .replace(/\s+(?:[\/|(]\s*|l\s+)?whats\s*h?app?\b.*$/i, '')
+      .replace(/\s+(?:[\/|(]\s*|l\s+)?(?:wa|telp|tlp)\.?\s*:?\s*[+\d][\d\s\-()+]*$/i, '')
+      .replace(/\s+[+\d][\d\s\-]{7,}$/, '')
+      .replace(/[\s,.;:\/|-]+$/, '');
+    s = s.replace(/^(pt\.?\s+)?(bank\s+)?(bni(\s*-?\s*46)?|negara\s+indonesia(\s+1946)?)(\s*\(\s*persero\s*\))?(\s*,?\s*tbk\.?)?(?![a-z])/i, 'BNI');
+    s = s.replace(/^BNI\s+bank(?![a-z])\s*/i, 'BNI ');
+    s = s.replace(/(^|[^a-z])bni(?=[^a-z]|$)/gi, '$1BNI');
+    // Kata yang seluruhnya huruf kecil dijadikan huruf besar di awal: "BNI plumpang raya" → "BNI Plumpang Raya".
+    s = s.replace(/(^|\s)([a-z])([a-z]+)/g, function (m, sp, a, rest) { return sp + a.toUpperCase() + rest; });
+    return normSpace(s);
+  }
+
+  // Nama jalan dari alamat bebas: "Jl. Raya Kemiri No.53" → "Jl. Raya Kemiri".
+  function streetFromAddress(addr) {
+    var parts = String(addr || '').split(',').map(normSpace).filter(Boolean);
+    var st = parts.filter(function (p) { return /^(jl|jln|jalan)\b/i.test(p); })[0] || parts[0] || '';
+    st = st.replace(/\s+(no\.?|nomor|km\.?|lt\.?|lantai|blok|kav\.?|rt\.?|rw\.?)(\s|\d|$).*$/i, '').replace(/\s+\d[\w\/.-]*$/, '');
+    return normSpace(st);
+  }
+
+  function nearIn(grid, lat, lon, fn) {
+    var i = cellIndex(lat), j = cellIndex(lon);
+    for (var di = -1; di <= 1; di++) {
+      for (var dj = -1; dj <= 1; dj++) {
+        var arr = grid[(i + di) + '_' + (j + dj)];
+        if (!arr) continue;
+        for (var k = 0; k < arr.length; k++) {
+          if (fn(arr[k], haversineKm(lat, lon, arr[k].lat, arr[k].lon))) return arr[k];
+        }
+      }
+    }
+    return null;
+  }
+
+  function addToGrid(grid, b) {
+    var key = cellKey(b.lat, b.lon);
+    (grid[key] = grid[key] || []).push(b);
+  }
+
+  // Baris mentah dari tools/overture-bni.py → daftar kantor BNI yang bersih dan tanpa duplikat.
+  function overtureBranches(rows) {
+    var cands = [];
+    (rows || []).forEach(function (r) {
+      if (!r || !isFinite(r.lat) || !isFinite(r.lon)) return;
+      if (r.country && r.country !== 'ID') return;
+      if (r.cat === 'atm') return;
+      var name = normSpace(r.name);
+      if (!isBniOffice(name) || !bniIsSubject(name) || BNI_NOISE.test(name)) return;
+      var type = branchType(name);
+      if (type === 'Kantor' && r.cat && NON_OFFICE_CATEGORY.test(r.cat)) return;
+      var clean = cleanBniName(name);
+      var generic = isGenericBranchName(clean);
+      if (generic) {
+        var st = streetFromAddress(r.addr);
+        clean = normSpace('BNI ' + (st && !GENERIC_STREET.test(st) ? st : normSpace(r.city)));
+      }
+      cands.push({
+        id: 'ov:' + String(r.id).replace(/-/g, '').slice(0, 12),
+        source: 'overture', name: clean, type: type,
+        lat: round6(+r.lat), lon: round6(+r.lon),
+        address: uniq([normSpace(r.addr), normSpace(r.city)].filter(Boolean)).join(', '),
+        city: normSpace(r.city),
+        phone: r.phone && !CALL_CENTER_PHONE.test(r.phone) ? normSpace(r.phone) : '',
+        generic: generic, conf: +r.conf || 0
+      });
+    });
+    // Duplikat: titik berjarak < 120 m, atau nama sama dalam 500 m. Yang namanya paling jelas dipertahankan.
+    cands.sort(function (a, b) {
+      return ((b.type !== 'Kantor') - (a.type !== 'Kantor')) || (a.generic - b.generic) || (b.conf - a.conf) || (a.id < b.id ? -1 : 1);
+    });
+    var grid = {};
+    var kept = [];
+    cands.forEach(function (c) {
+      var key = normKey(c.name);
+      var dup = nearIn(grid, c.lat, c.lon, function (o, d) { return d < 0.12 || (d < 0.5 && normKey(o.name) === key); });
+      if (dup) {
+        if (!dup.address && c.address) { dup.address = c.address; dup.city = dup.city || c.city; }
+        if (!dup.phone && c.phone) dup.phone = c.phone;
+        return;
+      }
+      kept.push(c);
+      addToGrid(grid, c);
+    });
+    return kept.sort(function (a, b) { return a.id < b.id ? -1 : 1; });
+  }
+
+  var OVERTURE_FIELDS = ['id', 'name', 'type', 'lat', 'lon', 'address', 'city', 'phone', 'generic'];
+
+  function packOverture(list, meta) {
+    return Object.assign({}, meta, {
+      fields: OVERTURE_FIELDS,
+      items: list.map(function (b) {
+        return OVERTURE_FIELDS.map(function (f) { return f === 'generic' ? (b.generic ? 1 : 0) : b[f]; });
+      })
+    });
+  }
+
+  function unpackOverture(data) {
+    if (!data || !Array.isArray(data.items) || !Array.isArray(data.fields)) return [];
+    var ix = {};
+    data.fields.forEach(function (f, i) { ix[f] = i; });
+    if (ix.id == null || ix.lat == null || ix.lon == null) return [];
+    var types = {};
+    BRANCH_TYPES.forEach(function (t) { types[t.id] = true; });
+    return data.items.filter(function (row) {
+      return Array.isArray(row) && isFinite(row[ix.lat]) && isFinite(row[ix.lon]) && row[ix.id];
+    }).map(function (row) {
+      var g = function (f) { return ix[f] == null || row[ix[f]] == null ? '' : row[ix[f]]; };
+      var b = {
+        id: String(g('id')), source: 'overture', name: String(g('name') || 'BNI'), type: types[g('type')] ? g('type') : 'Kantor',
+        lat: +g('lat'), lon: +g('lon'), address: String(g('address')), city: String(g('city')), phone: String(g('phone')), hours: ''
+      };
+      if (g('generic')) b.generic = true;
+      return b;
+    });
+  }
+
+  function branchWords(name) {
+    return String(name || '').toLowerCase().split(/[^a-z0-9]+/).filter(function (w) {
+      return w.length >= 3 && BRANCH_STOPWORDS.indexOf(w) < 0;
+    });
+  }
+
+  // Kantor tambahan yang berimpit dengan kantor dari sumber utama dianggap sama dan dibuang:
+  // jarak < 80 m, atau < 250 m bila salah satu namanya umum ("BNI Jl. Pemuda") atau namanya memuat kata yang sama.
+  function dropNearBranches(extra, base) {
+    if (!extra.length || !base.length) return extra.slice();
+    var grid = {};
+    base.forEach(function (b) { addToGrid(grid, b); });
+    return extra.filter(function (x) {
+      var words = branchWords(x.name);
+      return !nearIn(grid, x.lat, x.lon, function (b, d) {
+        if (d < 0.08) return true;
+        if (d >= 0.25) return false;
+        if (x.generic || b.generic) return true;
+        var bw = branchWords(b.name);
+        return words.some(function (w) { return bw.indexOf(w) >= 0; });
+      });
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -1759,6 +1959,9 @@
     qlStr: qlStr, OVERPASS_ENTITY_RE: OVERPASS_ENTITY_RE, elementLatLon: elementLatLon, formatAddress: formatAddress,
     isExcluded: isExcluded, categoryOf: categoryOf, parseCompanies: parseCompanies, dedupeCompanies: dedupeCompanies,
     parseBranches: parseBranches, dedupeBranches: dedupeBranches, branchType: branchType, normBranchType: normBranchType,
+    BNI_WIKIDATA: BNI_WIKIDATA, isBniOffice: isBniOffice, isGenericBranchName: isGenericBranchName, bniIsSubject: bniIsSubject,
+    cleanBniName: cleanBniName, streetFromAddress: streetFromAddress, overtureBranches: overtureBranches,
+    packOverture: packOverture, unpackOverture: unpackOverture, branchWords: branchWords, dropNearBranches: dropNearBranches,
     parseNumberID: parseNumberID, parseMoneyCell: parseMoneyCell, unitFromHeader: unitFromHeader,
     formatRupiah: formatRupiah, formatRpShort: formatRpShort, formatKm: formatKm, formatPct: formatPct,
     formatCount: formatCount, formatDate: formatDate, relTime: relTime, isoDate: isoDate, parseDateCell: parseDateCell,

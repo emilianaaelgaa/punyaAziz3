@@ -17,6 +17,8 @@
     { url: 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', label: 'maps.mail.ru' }
   ];
   var BRANCH_TTL = 30 * 864e5;
+  // Naikkan bila aturan pembacaan kantor BNI berubah, agar cache lama diunduh ulang.
+  var BRANCH_VERSION = 2;
   var CELL_TTL = 14 * 864e5;
   var memCells = new Map();
 
@@ -98,7 +100,7 @@
     opts = opts || {};
     var cached = await S.get('branches:osm');
     var hasCache = cached && cached.items && cached.items.length;
-    if (hasCache && !opts.force && Date.now() - cached.t < BRANCH_TTL) {
+    if (hasCache && !opts.force && cached.v === BRANCH_VERSION && Date.now() - cached.t < BRANCH_TTL) {
       return { items: cached.items, t: cached.t, fromCache: true };
     }
     try {
@@ -106,7 +108,7 @@
       var items = U.parseBranches(json.elements || []);
       if (!items.length) throw new Error('Server tidak mengembalikan data kantor BNI.');
       var t = Date.now();
-      await S.set('branches:osm', { t: t, items: items });
+      await S.set('branches:osm', { t: t, v: BRANCH_VERSION, items: items });
       return { items: items, t: t, fromCache: false };
     } catch (e) {
       if (e.name !== 'AbortError' && hasCache) return { items: cached.items, t: cached.t, fromCache: true, stale: true, error: e };
@@ -253,7 +255,7 @@
   }
 
   root.PP.osm = {
-    ENDPOINTS: ENDPOINTS, BRANCH_TTL: BRANCH_TTL, CELL_TTL: CELL_TTL,
+    ENDPOINTS: ENDPOINTS, BRANCH_TTL: BRANCH_TTL, BRANCH_VERSION: BRANCH_VERSION, CELL_TTL: CELL_TTL,
     overpass: overpass, loadBranches: loadBranches, loadCompanies: loadCompanies,
     clearCells: clearCells, geocode: geocode, sleep: sleep, loadEconomy: loadEconomy, cityName: cityName
   };

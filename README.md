@@ -13,7 +13,7 @@ Aplikasi ini alat bantu pribadi, bukan aplikasi resmi BNI.
 
 ## Fitur
 
-- **Peta kantor BNI se-Indonesia** dari OpenStreetMap: KC, KCP, KK, dan Kanwil, dengan pencarian dan filter jenis kantor. Daftar resmi kantor bisa diimpor dari Excel.
+- **Peta kantor BNI se-Indonesia** dari OpenStreetMap, dilengkapi ±1.670 kantor dari Overture Maps: KC, KCP, KK, dan Kanwil, dengan pencarian dan filter jenis kantor. Kantor yang belum ada bisa Anda tambahkan sendiri, kantor yang salah bisa diubah atau disembunyikan, dan daftar resmi kantor bisa diimpor dari Excel.
 - **Deteksi otomatis badan usaha** di sekitar kantor yang dipilih: PT, CV, UD, PD, Firma, dan koperasi. PT Tbk dan BUMN/Persero tersembunyi secara bawaan karena biasanya di atas target plafond, tetapi bisa ditampilkan dengan satu klik. Opsional: pabrik, gudang, grosir, dealer, hotel, SPBU, dan rumah sakit yang tidak berlabel PT/CV.
 - **Peluang pasar**: sektor usaha paling potensial di sekitar kantor beserta saran produk (KMK/KI), klaster usaha yang berdekatan, pasar, mal, kawasan industri, dan pelabuhan terdekat, jumlah kantor bank lain, serta tautan berita investasi dan data PDRB BPS untuk kota tersebut. Lihat [Peluang pasar](#peluang-pasar).
 - **Mode area**: tanpa kantor aktif, geser peta ke kawasan mana pun dan zona dihitung dari kantor BNI terdekat.
@@ -48,6 +48,8 @@ Aplikasi membutuhkan internet untuk peta dan data OpenStreetMap. Jika jaringan k
 
 1. Pertama kali dibuka, aplikasi mengunduh data kantor BNI se-Indonesia (sekali saja, ±30 detik; diperbarui otomatis tiap 30 hari).
 2. Pilih kantor: klik penanda di peta, cari di tab **Cabang**, atau tekan **Lokasi saya** untuk melihat kantor terdekat.
+   - Kantor belum ada? Di tab **Cabang** tekan **Tambah kantor**, lalu ketuk lokasinya di peta atau tempel koordinat/tautan Google Maps. Bila pencarian tidak menemukan kantor, tombol **Cari di Google Maps** membantu menemukan lokasinya.
+   - Nama, jenis, atau lokasi kantor salah? Pilih kantornya, lalu tekan **Ubah data kantor** di tab **Deteksi**. Kantor yang tidak ada bisa disembunyikan, dan bisa ditampilkan lagi dari **Pengaturan**.
 3. Tab **Deteksi** menampilkan jumlah usaha per zona. Klik kotak zona atau chip badan usaha untuk menyaring.
 4. Tab **Peluang** merangkum sektor usaha yang paling potensial, klaster usaha, pusat ekonomi, dan bank lain di sekitar kantor.
 5. Klik perusahaan untuk membuka detail. Isian apa pun otomatis menyimpan perusahaan ke tab **Prospek saya**.
@@ -78,6 +80,7 @@ Keterbatasan:
 ## Sumber data dan keterbatasannya
 
 - **Kantor BNI dan badan usaha** berasal dari [OpenStreetMap](https://www.openstreetmap.org/copyright) (© kontributor OpenStreetMap, lisensi ODbL) melalui Overpass API. Data diisi sukarelawan sehingga tidak semua kantor dan perusahaan tercatat, terutama PT/CV kecil di luar kota besar. Tambahkan prospek secara manual atau impor dari Excel untuk melengkapi. Kantor BNI dapat diganti dengan daftar resmi melalui impor.
+- **Kantor BNI tambahan** berasal dari [Overture Maps Foundation](https://overturemaps.org/) (data tempat Meta, Microsoft, dan Foursquare; lisensi [CDLA Permissive 2.0](https://cdla.dev/permissive-2-0/) dan Apache 2.0). Datanya sudah disaring: hanya kantor BNI, tanpa ATM, agen BNI46, BNI Syariah (kini BSI), dan anak usaha. Kantor yang berimpit dengan OpenStreetMap, impor Excel, atau tambahan Anda tidak ditampilkan dua kali. Penandanya bergaris tepi karena lokasinya bisa kurang tepat atau kantornya sudah tutup. Bisa dimatikan di **Pengaturan → Data kantor BNI**. Lihat [data/README.md](data/README.md).
 - **Struktur organisasi dan laporan keuangan tidak tersedia gratis** untuk perusahaan tertutup, sehingga tidak bisa dideteksi otomatis. Sumber resmi data pengurus dan pemegang saham adalah AHU Online Kementerian Hukum (berbayar per perusahaan). Laporan keuangan diperoleh dari calon debitur. Hanya perusahaan Tbk yang laporan keuangannya publik di IDX. Aplikasi menyediakan formulir dan impor Excel untuk data ini.
 - **Pasar, mal, kawasan industri, pelabuhan, dan kantor bank lain** di tab Peluang juga dari OpenStreetMap, sehingga kelengkapannya bergantung pada daerahnya.
 - **Google Maps** dipakai lewat tautan (gratis), atau sebagai sumber deteksi bila Anda memasang API key sendiri (lihat [Mode Google Maps](#mode-google-maps)).
@@ -126,7 +129,7 @@ Tarif dapat berubah; cek halaman harga Google Maps Platform. Pembatas di aplikas
 
 ## Privasi dan kepatuhan
 
-- Semua prospek, catatan, data pengurus, dan laporan keuangan **tersimpan hanya di browser perangkat Anda** (IndexedDB). Tidak ada server aplikasi; yang dikirim ke internet hanya permintaan peta dan pencarian OpenStreetMap (koordinat area dan alamat saat impor).
+- Semua prospek, catatan, data pengurus, laporan keuangan, dan kantor yang Anda tambahkan atau ubah **tersimpan hanya di browser perangkat Anda** (IndexedDB) dan ikut dalam file cadangan. Tidak ada server aplikasi; yang dikirim ke internet hanya permintaan peta dan pencarian OpenStreetMap (koordinat area dan alamat saat impor).
 - **Jangan memasukkan data SLIK OJK.** SLIK hanya boleh diakses untuk calon debitur yang sudah mengajukan kredit dan dengan persetujuannya, bukan untuk prospecting.
 - Nama pengurus dan pemegang saham termasuk **data pribadi** menurut UU No. 27 Tahun 2022 tentang Pelindungan Data Pribadi. Simpan seperlunya, lindungi perangkat dengan kunci layar, dan ikuti kebijakan keamanan informasi BNI sebelum menggunakan aplikasi ini untuk data nasabah.
 - Jangan menyimpan file ekspor atau cadangan yang berisi data prospek di repositori ini.
@@ -157,6 +160,8 @@ js/osm.js             Overpass API & Nominatim (kantor, badan usaha, pusat ekono
 js/google.js          mode Google: Maps JavaScript API (Places), Map Tiles API, penghitung pemakaian
 js/excel.js           impor/ekspor Excel (SheetJS dimuat saat dibutuhkan)
 js/app.js             peta, daftar, detail prospek, dialog
+data/                 kantor BNI dari Overture Maps (lihat data/README.md)
+tools/                skrip pembaruan data kantor Overture
 vendor/               Leaflet 1.9.4, Leaflet.markercluster 1.5.3, SheetJS 0.18.5 (beserta lisensinya)
 sw.js, manifest.webmanifest, assets/   dukungan pemasangan di HP
 tests/                tes unit (Node) dan tes browser (Playwright)
@@ -169,4 +174,11 @@ npm test              # tes unit fungsi murni (Node 18+)
 npm run test:e2e      # tes browser dengan jaringan tiruan (butuh Playwright + Chromium)
 ```
 
-Tes browser tidak menghubungi internet; Overpass, Nominatim, tile peta, Maps JavaScript API, dan Map Tiles API diganti data tiruan di `tests/e2e.js`.
+Tes browser tidak menghubungi internet; Overpass, Nominatim, tile peta, Maps JavaScript API, Map Tiles API, dan data kantor Overture diganti data tiruan di `tests/e2e.js`.
+
+Memperbarui data kantor dari rilis Overture terbaru (butuh Python dengan `pyarrow`):
+
+```
+python3 tools/overture-bni.py > /tmp/bni-overture-raw.json
+node tools/build-overture-bni.js /tmp/bni-overture-raw.json
+```

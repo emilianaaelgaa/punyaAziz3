@@ -79,6 +79,10 @@
         <label class="search"><svg class="i"><use href="#i-search"/></svg><input id="branchSearch" type="search" placeholder="Cari kantor, kota, atau alamat" autocomplete="off" aria-label="Cari kantor BNI"></label>
         <div class="chips" id="branchTypeChips" aria-label="Jenis kantor"></div>
         <p class="meta" id="branchMeta">Memuat data kantor BNI…</p>
+        <div class="branch-tools">
+          <button type="button" class="btn small" id="btnAddBranch"><svg class="i"><use href="#i-plus"/></svg>Tambah kantor</button>
+          <span class="hint">Kantor belum ada atau lokasinya salah? Tambahkan, atau pilih kantornya lalu "Ubah data kantor".</span>
+        </div>
       </div>
       <ol class="list" id="branchList"></ol>
     </section>
@@ -233,8 +237,12 @@
             <option value="import">Hanya dari impor Excel</option>
           </select>
         </label>
+        <label class="check"><input type="checkbox" id="setOverture"><span>Lengkapi dengan kantor dari Overture Maps (data tempat Meta, Microsoft, dan Foursquare). Kantor yang sudah ada di OpenStreetMap tidak digandakan.</span></label>
         <p class="hint" id="setBranchInfo"></p>
-        <div class="btn-row"><button type="button" class="btn" id="btnRefreshBranches"><svg class="i"><use href="#i-refresh"/></svg>Perbarui dari OpenStreetMap</button></div>
+        <div class="btn-row">
+          <button type="button" class="btn" id="btnRefreshBranches"><svg class="i"><use href="#i-refresh"/></svg>Perbarui dari OpenStreetMap</button>
+          <button type="button" class="btn" id="btnUnhideBranches" hidden><svg class="i"><use href="#i-eye"/></svg><span>Tampilkan lagi kantor yang disembunyikan</span></button>
+        </div>
       </fieldset>
       <fieldset>
         <legend>Server dan tampilan</legend>
@@ -305,7 +313,7 @@
     <div class="dlg-body prose">
       <h3>Alur kerja</h3>
       <ol>
-        <li>Pilih kantor BNI: klik penanda di peta atau cari di tab <b>Cabang</b>. Gunakan <b>Lokasi saya</b> untuk melihat kantor terdekat.</li>
+        <li>Pilih kantor BNI: klik penanda di peta atau cari di tab <b>Cabang</b>. Gunakan <b>Lokasi saya</b> untuk melihat kantor terdekat. Kantor belum ada? Tekan <b>Tambah kantor</b> di tab Cabang. Data kantor salah? Pilih kantornya lalu <b>Ubah data kantor</b>.</li>
         <li>Aplikasi menggambar tiga zona dan mendeteksi PT, CV, UD, PD, Firma, dan koperasi di sekitarnya dari OpenStreetMap.</li>
         <li>Buka tab <b>Peluang</b> untuk melihat sektor usaha yang paling potensial, klaster usaha, pasar/mal/kawasan industri terdekat, dan bank lain di sekitar kantor.</li>
         <li>Buka satu perusahaan untuk melihat alamat, kontak, dan tautan riset (Google Maps, Street View, AHU, LinkedIn). Isi status, estimasi plafond, struktur organisasi, dan laporan keuangan; semuanya tersimpan otomatis ke <b>Prospek saya</b>.</li>
@@ -321,6 +329,7 @@
       <h3>Dari mana datanya?</h3>
       <ul>
         <li><b>Kantor BNI dan badan usaha</b>: OpenStreetMap (© kontributor OpenStreetMap, lisensi ODbL), diambil lewat Overpass API. Data ini diisi sukarelawan sehingga bisa belum lengkap atau kurang tepat, terutama untuk PT/CV kecil. Kantor BNI bisa ditimpa dengan daftar resmi melalui impor Excel.</li>
+        <li><b>Kantor BNI tambahan</b>: Overture Maps Foundation (data tempat Meta, Microsoft, dan Foursquare; lisensi CDLA Permissive 2.0 dan Apache 2.0), sudah disaring tanpa ATM, agen, dan BNI Syariah. Penandanya bergaris tepi karena lokasinya bisa kurang tepat atau kantornya sudah tutup. Kantor yang sudah ada di OpenStreetMap tidak ditampilkan dua kali.</li>
         <li><b>Struktur organisasi dan laporan keuangan</b> tidak tersedia gratis untuk perusahaan tertutup. Sumber resminya AHU Online Kemenkum (berbayar per perusahaan) dan dokumen dari calon debitur sendiri. Hanya perusahaan Tbk yang laporan keuangannya publik (IDX). Isi data ini secara manual atau lewat impor.</li>
         <li><b>Google Maps</b>: tautan "Cari di Google Maps" di tab Deteksi membuka pencarian PT, CV, pabrik, dan lainnya di sekitar kantor, gratis tanpa API key. Perusahaan yang ditemukan di sana bisa dimasukkan sebagai prospek dengan menempel koordinat atau tautan tempatnya.</li>
         <li><b>Pencarian alamat</b> saat impor memakai OpenStreetMap Nominatim (maksimal 1 alamat per detik).</li>
@@ -345,6 +354,39 @@
         <li>Aplikasi ini alat bantu pribadi, bukan aplikasi resmi BNI.</li>
       </ul>
     </div>
+  </form>
+</dialog>
+
+<dialog id="dlgBranch" aria-labelledby="dlgBranchTitle">
+  <form method="dialog" class="dlg narrow" id="formBranch" novalidate>
+    <header class="dlg-head">
+      <h2 id="dlgBranchTitle">Tambah kantor BNI</h2>
+      <button class="btn icon" value="cancel" aria-label="Tutup"><svg class="i"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="dlg-body">
+      <p class="hint" id="brNote"></p>
+      <label class="field"><span>Nama kantor</span><input id="brName" type="text" autocomplete="off" placeholder="mis. BNI KCP Tlogosari"></label>
+      <label class="field"><span>Jenis kantor</span><select id="brType"></select></label>
+      <div class="field">
+        <span>Lokasi</span>
+        <div class="br-loc"><b id="brLocText">Belum ditentukan</b><button type="button" class="btn small" id="btnBrPick"><svg class="i"><use href="#i-pin"/></svg>Pilih di peta</button></div>
+        <div class="pick-paste br-paste">
+          <input type="text" id="brCoord" placeholder="atau tempel koordinat / link Google Maps" aria-label="Tempel koordinat atau link Google Maps" autocomplete="off">
+          <button type="button" class="btn small" id="btnBrCoord">Pakai</button>
+        </div>
+        <a class="hint-link" id="brGmaps" href="https://www.google.com/maps/search/BNI" target="_blank" rel="noopener">Cari kantor ini di Google Maps</a>
+      </div>
+      <label class="field"><span>Alamat (opsional)</span><input id="brAddr" type="text" autocomplete="off"></label>
+      <label class="field"><span>Kota/kabupaten (opsional)</span><input id="brCity" type="text" autocomplete="off"></label>
+      <p class="error" id="brError" role="alert" hidden></p>
+    </div>
+    <footer class="dlg-foot">
+      <button type="button" class="btn danger" id="btnBrRemove" hidden>Sembunyikan</button>
+      <button type="button" class="btn" id="btnBrRestore" hidden>Pakai data asli</button>
+      <span class="grow"></span>
+      <button class="btn" value="cancel">Batal</button>
+      <button type="button" class="btn primary" id="btnBrSave">Simpan</button>
+    </footer>
   </form>
 </dialog>
 

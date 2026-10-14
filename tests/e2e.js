@@ -102,6 +102,20 @@ const economyElements = [
   node(6110, offset(UNGARAN, 8.0, 0), { amenity: 'bank', name: 'Bank Jateng Cabang Ungaran' })
 ];
 
+// Kantor BNI dari Overture (tiruan): dua duplikat kantor OSM dan tiga kantor yang belum ada di OSM.
+const OV_UNG = offset(UNGARAN, 0.12, 0);
+const OV_SMG = offset({ lat: -6.9784, lon: 110.4203 }, 0.2, 90);
+const OVERTURE_FIXTURE = {
+  release: 'uji', fields: ['id', 'name', 'type', 'lat', 'lon', 'address', 'city', 'phone', 'generic'],
+  items: [
+    ['ov:dup1', 'BNI KCP Ungaran', 'KCP', OV_UNG.lat, OV_UNG.lon, 'Jl. Gatot Subroto, Ungaran', 'Ungaran', '', 0],
+    ['ov:dup2', 'BNI Jl. Pemuda', 'Kantor', OV_SMG.lat, OV_SMG.lon, 'Jl. Pemuda, Semarang', 'Semarang', '', 1],
+    ['ov:tlogo', 'BNI KCP Tlogosari', 'KCP', -6.9790, 110.4740, 'Jl. Fatmawati No. 10, Semarang', 'Semarang', '024-6700000', 0],
+    ['ov:demak', 'BNI KC Demak', 'KC', -6.8940, 110.6380, 'Jl. Sultan Fatah, Demak', 'Demak', '', 0],
+    ['ov:salah', 'BNI Kantor Salah Lokasi', 'Kantor', -7.0100, 110.3000, 'Jl. Contoh, Semarang', 'Semarang', '', 0]
+  ]
+};
+
 function inBox(el, b) {
   const lat = el.lat != null ? el.lat : el.center.lat;
   const lon = el.lon != null ? el.lon : el.center.lon;
@@ -215,6 +229,9 @@ async function mockGoogle(context) {
 
 
 async function mockNetwork(context) {
+  await context.route(/\/data\/kantor-bni-overture\.js$/, (route) => route.fulfill({
+    status: 200, contentType: 'text/javascript', body: 'self.PP_OVERTURE_BNI = ' + JSON.stringify(OVERTURE_FIXTURE) + ';'
+  }));
   await context.route(/tile\.openstreetmap\.org|arcgisonline\.com/, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: TILE }));
   await context.route(/overpass|maps\.mail\.ru/, async (route) => {
     stats.overpass++;
@@ -285,12 +302,24 @@ async function run() {
   });
 
   await step('kantor BNI dimuat dari Overpass dan difilter', async () => {
-    await page.waitForFunction(() => window.__PP_STATE__.branches.length > 0, null, { timeout: 15000 });
+    await page.waitForFunction(() => window.__PP_STATE__.branchesOsm.length > 0 && !window.__PP_STATE__.branchesLoading, null, { timeout: 15000 });
     const s = await S();
-    // 10 elemen dasar: 1 duplikat (way), ATM, Syariah, Mandiri dibuang → 6 + 400 sintetis
-    assert.equal(s.branches, 406);
+    // 10 elemen dasar: 1 duplikat (way), ATM, Syariah, Mandiri dibuang → 6 + 400 sintetis, ditambah 3 kantor Overture
+    assert.equal(s.branches, 409);
     assert.equal(stats.branchQueries, 1);
     await page.screenshot({ path: path.join(SHOT_DIR, '01-awal.png') });
+  });
+
+  await step('kantor tambahan dari Overture: melengkapi tanpa dobel', async () => {
+    const ids = await page.evaluate(() => window.__PP_STATE__.branches.filter((b) => b.source === 'overture').map((b) => b.id).sort());
+    assert.deepEqual(ids, ['ov:demak', 'ov:salah', 'ov:tlogo'], 'duplikat kantor OSM dibuang');
+    await page.click('#tabbtn-cabang');
+    assert.match(await page.locator('#branchMeta').innerText(), /3 dari Overture/);
+    await page.fill('#branchSearch', 'tlogosari');
+    await page.waitForSelector('#branchList [data-branch="ov:tlogo"]');
+    assert.match(await page.locator('#branchList [data-branch="ov:tlogo"]').innerText(), /Overture Maps/);
+    assert.equal(await page.locator('#branchList [data-branch="ov:tlogo"] .bt.src-overture').count(), 1);
+    await page.fill('#branchSearch', '');
   });
 
   await step('cari & pilih kantor dari tab Cabang', async () => {
@@ -674,6 +703,120 @@ async function run() {
     assert.equal(stats.economyQueries, 1);
   });
 
+  await step('kantor belum ada: cari di Google Maps lalu tambah lewat tautan', async () => {
+    await page.click('#tabbtn-cabang');
+    await page.fill('#branchSearch', 'kedungmundu');
+    await page.waitForSelector('#branchList .empty [data-action="add-branch"]');
+    assert.match(await page.locator('#branchList [data-action="gmaps-bni"]').innerText(), /Cari "BNI kedungmundu" di Google Maps/);
+    await page.click('#branchList [data-action="add-branch"]');
+    await page.waitForSelector('#dlgBranch[open]');
+    assert.equal(await page.inputValue('#brName'), 'BNI kedungmundu');
+    // Simpan tanpa lokasi ditolak
+    await page.click('#btnBrSave');
+    assert.match(await page.locator('#brError').innerText(), /Tentukan lokasi/);
+    await page.fill('#brName', 'BNI KCP Kedungmundu');
+    await page.selectOption('#brType', 'KCP');
+    await page.fill('#brCoord', 'https://www.google.com/maps/place/BNI+KCP+Kedungmundu/@-7.0200,110.4600,17z/data=!3m1!4b1!4m6!3m5!1s0x0:0x1!8m2!3d-7.0201!4d110.4602');
+    await page.click('#btnBrCoord');
+    assert.equal(await page.locator('#brLocText').innerText(), '-7.020100, 110.460200');
+    assert.match(await page.getAttribute('#brGmaps', 'href'), /BNI%20KCP%20Kedungmundu\/@-7\.0201/);
+    await page.fill('#brCity', 'Semarang');
+    await page.screenshot({ path: path.join(SHOT_DIR, '14-tambah-kantor.png') });
+    await page.click('#btnBrSave');
+    await page.waitForFunction(() => !document.getElementById('dlgBranch').open);
+    await page.waitForFunction(() => window.__PP_STATE__.activeBranch && window.__PP_STATE__.activeBranch.name === 'BNI KCP Kedungmundu' && !window.__PP_STATE__.resultsLoading, null, { timeout: 15000 });
+    const b = await page.evaluate(() => window.__PP_STATE__.activeBranch);
+    assert.match(b.id, /^man:/);
+    assert.equal(b.type, 'KCP');
+    assert.equal(b.lat, -7.0201);
+    assert.match(await page.locator('#detectContext').innerText(), /Sekitar BNI KCP Kedungmundu/);
+    await page.click('#tabbtn-cabang');
+    await page.fill('#branchSearch', 'kedungmundu');
+    assert.match(await page.locator('#branchList .item').first().innerText(), /Tambahan Anda/);
+  });
+
+  await step('ubah kantor OSM, lalu kembali ke data asli', async () => {
+    await page.fill('#branchSearch', 'banyumanik');
+    await page.click('#branchList [data-branch="osm:n1003"]');
+    await page.waitForFunction(() => window.__PP_STATE__.activeBranch && window.__PP_STATE__.activeBranch.id === 'osm:n1003');
+    await page.click('#detectContext [data-action="edit-branch"]');
+    await page.waitForSelector('#dlgBranch[open]');
+    assert.match(await page.locator('#brNote').innerText(), /Data asli dari OpenStreetMap/);
+    assert.equal(await page.isHidden('#btnBrRestore'), true);
+    await page.fill('#brName', 'BNI KCP Banyumanik Setiabudi');
+    await page.fill('#brAddr', 'Jl. Setiabudi No. 1');
+    await page.click('#btnBrSave');
+    await page.waitForFunction(() => window.__PP_STATE__.activeBranch && window.__PP_STATE__.activeBranch.name === 'BNI KCP Banyumanik Setiabudi');
+    const st = await page.evaluate(() => ({
+      active: window.__PP_STATE__.activeBranch.id,
+      orig: window.__PP_STATE__.branches.some((b) => b.id === 'osm:n1003'),
+      last: window.__PP_STATE__.settings.lastBranchId
+    }));
+    assert.match(st.active, /^man:/);
+    assert.equal(st.orig, false, 'kantor asli digantikan');
+    assert.equal(st.last, st.active);
+    await page.click('#detectContext [data-action="edit-branch"]');
+    await page.waitForSelector('#dlgBranch[open]');
+    assert.match(await page.locator('#brNote').innerText(), /sudah mengubah/);
+    await page.click('#btnBrRestore');
+    await page.waitForFunction(() => window.__PP_STATE__.activeBranch && window.__PP_STATE__.activeBranch.id === 'osm:n1003');
+    assert.equal(await page.evaluate(() => window.__PP_STATE__.activeBranch.name), 'BNI KCP Banyumanik');
+  });
+
+  await step('sembunyikan kantor yang salah, tampilkan lagi dari Pengaturan', async () => {
+    await page.click('#tabbtn-cabang');
+    await page.fill('#branchSearch', 'salah lokasi');
+    await page.click('#branchList [data-branch="ov:salah"]');
+    await page.waitForFunction(() => window.__PP_STATE__.activeBranch && window.__PP_STATE__.activeBranch.id === 'ov:salah');
+    assert.match(await page.locator('#detectContext .src-note').innerText(), /Overture Maps/);
+    assert.equal(await page.locator('.bm.src-overture.active').count(), 1);
+    await page.screenshot({ path: path.join(SHOT_DIR, '15-kantor-overture.png') });
+    await page.click('#detectContext [data-action="edit-branch"]');
+    await page.waitForSelector('#dlgBranch[open]');
+    assert.equal(await page.locator('#btnBrRemove').innerText(), 'Sembunyikan');
+    await page.click('#btnBrRemove');
+    await page.waitForSelector('#dlgConfirm[open]');
+    await page.click('#confirmOk');
+    await page.waitForFunction(() => !window.__PP_STATE__.branches.some((b) => b.id === 'ov:salah'));
+    assert.equal(await page.evaluate(() => window.__PP_STATE__.activeBranch), null);
+    await page.click('#btnSettings');
+    assert.match(await page.locator('#setBranchInfo').innerText(), /1 kantor disembunyikan/);
+    assert.match(await page.locator('#btnUnhideBranches').innerText(), /Tampilkan lagi 1 kantor/);
+    // Matikan data Overture: kantor Overture hilang dari daftar
+    await page.uncheck('#setOverture');
+    await page.click('#btnSaveSettings');
+    await page.waitForFunction(() => !window.__PP_STATE__.branches.some((b) => b.source === 'overture'));
+    await page.click('#btnSettings');
+    await page.check('#setOverture');
+    await page.click('#btnUnhideBranches');
+    await page.click('#btnSaveSettings');
+    await page.waitForFunction(() => window.__PP_STATE__.branches.some((b) => b.id === 'ov:salah') && window.__PP_STATE__.branches.some((b) => b.id === 'ov:tlogo'));
+  });
+
+  await step('kantor tambahan ikut cadangan; cache kantor versi lama diunduh ulang', async () => {
+    await page.click('#btnSettings');
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnBackup')]);
+    const file = path.join(SHOT_DIR, 'cadangan-kantor.json');
+    await dl.saveAs(file);
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.ok(data.branchesManual.some((m) => m.name === 'BNI KCP Kedungmundu' && /^man:/.test(m.id)));
+    await page.click('#formSettings .dlg-foot button[value="cancel"]');
+    const before = stats.branchQueries;
+    await page.evaluate(async () => {
+      const rec = await PP.store.get('branches:osm');
+      delete rec.v;
+      await PP.store.set('branches:osm', rec);
+    });
+    await page.reload();
+    const t0 = Date.now();
+    while (stats.branchQueries === before && Date.now() - t0 < 15000) await new Promise((r) => setTimeout(r, 100));
+    await page.waitForFunction(() => window.__PP_STATE__.branchesOsm.length > 0 && !window.__PP_STATE__.branchesLoading, null, { timeout: 15000 });
+    assert.equal(stats.branchQueries, before + 1, 'data kantor dengan aturan lama diunduh ulang');
+    const names = await page.evaluate(() => window.__PP_STATE__.branches.map((b) => b.name));
+    assert.ok(names.includes('BNI KCP Kedungmundu'), 'kantor tambahan tetap ada setelah muat ulang');
+    await page.screenshot({ path: path.join(SHOT_DIR, '13-kantor-tambahan.png') });
+  });
+
   // Ponsel
   const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'id-ID' });
   await mockNetwork(mobile);
@@ -705,6 +848,25 @@ async function run() {
     const ov = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.ok(ov <= 0, 'overflow horizontal di tab Peluang ' + ov);
     await m.screenshot({ path: path.join(SHOT_DIR, '12-ponsel-peluang.png') });
+    // Tambah kantor di ponsel: formulir muat di layar, pilih lokasi lalu kembali ke formulir
+    await m.click('#tabbtn-cabang');
+    await m.click('#btnAddBranch');
+    await m.waitForSelector('#dlgBranch[open]');
+    const dbox = await m.locator('#dlgBranch').boundingBox();
+    assert.ok(dbox.width <= 390, 'formulir kantor selebar layar');
+    await m.fill('#brName', 'BNI KK Uji Ponsel');
+    await m.screenshot({ path: path.join(SHOT_DIR, '16-ponsel-tambah-kantor.png') });
+    await m.click('#btnBrPick');
+    await m.waitForSelector('#pickBanner:not([hidden])');
+    assert.match(await m.locator('#pickText').innerText(), /BNI KK Uji Ponsel/);
+    await m.fill('#pickCoord', '-7.1500, 110.4100');
+    await m.click('#pickPaste button[type="submit"]');
+    await m.waitForSelector('#dlgBranch[open]');
+    assert.equal(await m.inputValue('#brName'), 'BNI KK Uji Ponsel', 'isian tidak hilang');
+    assert.equal(await m.locator('#brLocText').innerText(), '-7.150000, 110.410000');
+    await m.click('#dlgBranch button[value="cancel"] >> nth=1');
+    await m.waitForFunction(() => !document.getElementById('dlgBranch').open && !window.__PP_STATE__.branchDraft);
+    assert.equal(await m.evaluate(() => window.__PP_STATE__.branches.some((b) => b.name === 'BNI KK Uji Ponsel')), false);
     await m.click('#tabbtn-deteksi');
     await m.click('#sheetHandle');
     assert.equal(await m.evaluate(() => document.getElementById('app').dataset.sheet), 'full');

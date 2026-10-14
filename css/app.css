@@ -141,6 +141,17 @@ a { color: var(--accent); }
 .btn.file { position: relative; overflow: hidden; }
 .btn.file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.btn-row.center { justify-content: center; }
+.branch-tools { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.branch-tools .btn { flex: none; }
+.branch-tools .hint { line-height: 1.35; }
+.br-loc { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; }
+.br-loc b { font-size: 13px; font-variant-numeric: tabular-nums; }
+.br-loc b.missing { color: var(--ink-3); font-weight: 500; }
+.br-paste { margin-top: 2px; }
+.dlg .br-paste input { border-color: var(--line); }
+.hint-link { font-size: 12px; color: var(--accent); font-weight: 600; }
+.dlg-foot .grow { flex: 1; }
 
 input[type="text"], input[type="search"], input[type="number"], input[type="date"], input[type="tel"],
 input[type="email"], input[type="url"], select, textarea {
@@ -246,6 +257,8 @@ select { padding-right: 28px; }
 .context strong { font-family: var(--font-display); font-size: 15px; line-height: 1.25; }
 .context span { font-size: 12px; color: var(--ink-2); }
 .context .gm-links { color: var(--ink-3); }
+.context .ctx-actions { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.context .src-note { color: var(--warn-ink); }
 .gm-links a { font-weight: 600; text-decoration: none; }
 .gm-links a:hover { text-decoration: underline; }
 
@@ -315,6 +328,7 @@ select { padding-right: 28px; }
   border-radius: 6px; background: var(--branch); color: var(--card); font-size: 11px; font-weight: 700; letter-spacing: .02em;
 }
 .bt.t-KCP, .bt.t-KK, .bt.t-Kantor { background: var(--branch-2); }
+.bt.src-overture { background: transparent; color: var(--branch-2); box-shadow: inset 0 0 0 1.5px var(--branch-2); }
 
 .tag {
   display: inline-flex; align-items: center; height: 20px; padding: 0 7px; border-radius: 5px;
@@ -465,6 +479,7 @@ select { padding-right: 28px; }
 .sw.green { background: var(--zone-green); }
 .sw.out { background: var(--zone-out); }
 .sw.bank { border-radius: 3px; background: var(--branch); }
+.sw.bank-ov { border-radius: 3px; background: var(--card); box-shadow: inset 0 0 0 2px var(--branch-2); }
 .sw.saved { background: var(--card); box-shadow: inset 0 0 0 2.5px var(--ink); }
 
 /* Penanda kantor BNI */
@@ -479,6 +494,9 @@ select { padding-right: 28px; }
 .bm .i { width: 16px; height: 16px; stroke-width: 2.1; }
 .bm.active { transform: scale(1.3); box-shadow: 0 0 0 2px var(--card), 0 0 0 5px var(--accent), 0 3px 10px rgba(0, 0, 0, .4); }
 .bm.dim { opacity: .55; }
+/* Kantor dari Overture: garis tepi, karena lokasinya perkiraan */
+.bm.src-overture { background: var(--card); color: var(--branch-2); box-shadow: inset 0 0 0 2px var(--branch-2), 0 0 0 2px var(--card), 0 2px 6px rgba(0, 0, 0, .3); }
+.bm.src-overture.active { box-shadow: inset 0 0 0 2px var(--branch-2), 0 0 0 2px var(--card), 0 0 0 5px var(--accent), 0 3px 10px rgba(0, 0, 0, .4); }
 .mc-wrap { background: none; border: 0; }
 .mc {
   width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;

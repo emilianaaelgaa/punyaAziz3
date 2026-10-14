@@ -135,14 +135,83 @@ test('parsing cabang BNI', () => {
     { type: 'node', id: 14, lat: -6.97, lon: 110.43, tags: { amenity: 'bank', name: 'ATM BNI' } },
     { type: 'node', id: 15, lat: -6.96, lon: 110.44, tags: { amenity: 'bank', name: 'Bank Mandiri' } },
     { type: 'node', id: 16, lat: -6.95, lon: 110.45, tags: { amenity: 'bank', name: 'Kantor Cabang Semarang', operator: 'PT Bank Negara Indonesia (Persero) Tbk' } },
-    { type: 'node', id: 17, lat: -6.94, lon: 110.46, tags: { amenity: 'bank', name: 'BNI Kantor Kas Pasar Johar' } }
+    { type: 'node', id: 17, lat: -6.94, lon: 110.46, tags: { amenity: 'bank', name: 'BNI Kantor Kas Pasar Johar' } },
+    // Nama cabang di tag branch, dan kantor yang hanya bertanda brand:wikidata
+    { type: 'node', id: 18, lat: -7.01, lon: 110.47, tags: { amenity: 'bank', name: 'BNI', brand: 'BNI', branch: 'KCP Tlogosari', 'addr:street': 'Jl. Fatmawati' } },
+    { type: 'node', id: 19, lat: -7.02, lon: 110.48, tags: { amenity: 'bank', name: 'Kantor Cabang Pembantu Pedurungan', 'brand:wikidata': 'Q2882611' } },
+    // ATM: "BNI ... & ATM" tetap kantor, "BNI ATM Center" bukan
+    { type: 'node', id: 20, lat: -7.03, lon: 110.49, tags: { amenity: 'bank', name: 'BNI KCP Undip & ATM' } },
+    { type: 'node', id: 21, lat: -7.04, lon: 110.50, tags: { amenity: 'bank', name: 'BNI ATM Center' } },
+    { type: 'node', id: 22, lat: -7.05, lon: 110.51, tags: { amenity: 'bank', name: 'Bank BNI Capem Sako', alt_name: 'BNI Sako' } },
+    { type: 'node', id: 23, lat: -7.06, lon: 110.52, tags: { amenity: 'bank', name: 'Bank BNI' } }
   ];
   const b = U.parseBranches(elements);
-  assert.deepEqual(b.map(x => x.id), ['osm:n10', 'osm:n12', 'osm:n16', 'osm:n17']);
-  assert.equal(b[0].type, 'KCP');
-  assert.equal(b[1].name, 'BNI Jl. Pemuda');
-  assert.equal(b[2].type, 'KC');
-  assert.equal(b[3].type, 'KK');
+  assert.deepEqual(b.map(x => x.id), ['osm:n10', 'osm:n12', 'osm:n16', 'osm:n17', 'osm:n18', 'osm:n19', 'osm:n20', 'osm:n22', 'osm:n23']);
+  const by = Object.fromEntries(b.map(x => [x.id, x]));
+  assert.equal(by['osm:n10'].type, 'KCP');
+  assert.equal(by['osm:n12'].name, 'BNI Jl. Pemuda');
+  assert.equal(by['osm:n12'].generic, true, 'nama umum ditandai');
+  assert.equal(by['osm:n16'].type, 'KC');
+  assert.equal(by['osm:n17'].type, 'KK');
+  assert.equal(by['osm:n18'].name, 'BNI KCP Tlogosari');
+  assert.equal(by['osm:n18'].type, 'KCP');
+  assert.equal(by['osm:n18'].generic, undefined);
+  assert.equal(by['osm:n19'].type, 'KCP');
+  assert.equal(by['osm:n22'].type, 'KCP', 'capem = cabang pembantu');
+  assert.match(by['osm:n22'].alt, /BNI Sako/);
+  assert.equal(by['osm:n23'].name, 'BNI');
+  assert.ok(U.branchQuery().includes('"brand:wikidata"="Q2882611"'));
+});
+
+test('kantor BNI dari Overture: saring, rapikan, buang duplikat', () => {
+  const row = (id, name, lat, lon, extra) => Object.assign({ id: id + '-0000-0000-0000-000000000000', name, cat: 'bank_or_credit_union', conf: 0.6, lat, lon, addr: '', city: 'Ungaran', country: 'ID', phone: '' }, extra);
+  const rows = [
+    row('a1', 'BNI KCP Ungaran / Whatshapp 0816868673', -7.1386, 110.4053, { addr: 'Jl. Diponegoro No. 5', phone: '+62211500046', conf: 0.7 }),
+    row('a2', 'Bank Negara Indonesia', -7.1388, 110.4055, { addr: 'Jalan Diponegoro 5', phone: '+6224123456', conf: 0.3 }),
+    row('a3', 'ATM BNI Alfamart', -7.15, 110.41, { cat: 'atm' }),
+    row('a4', 'Jagung Bakar Samping BNI', -7.16, 110.42, { cat: 'restaurant' }),
+    row('a5', 'Bank BNI Syariah PT', -7.17, 110.43),
+    row('a6', 'BNI Pinnacle - Singapore', 1.28, 103.85, { country: 'SG' }),
+    row('a7', 'Bank Negara Indonesia', -6.9175, 107.6191, { addr: 'Jalan Merdeka 43', city: 'Bandung' }),
+    row('a8', 'Bni', -7.2, 110.45, { addr: 'Jalan Raya', city: 'Bawen' }),
+    row('a9', 'BNI46 Bukittinggi', -0.305, 100.369, { cat: 'government_office', city: 'Bukittinggi' }),
+    row('b1', 'Rumdin Bni', -7.21, 110.46, { cat: 'historic_site' }),
+    row('b2', 'BNI Cafe', -7.22, 110.47, { cat: 'cafe' }),
+    row('b3', 'Kantor Cabang BNI Salatiga', -7.33, 110.5, { city: 'Salatiga' }),
+    row('b4', 'PT. Bank Negara Indonesia (persero) tbk Cabang Jambi', -1.61, 103.61, { cat: 'corporate_or_business_office', city: 'Jambi' }),
+    row('b5', 'bank bni plumpang raya', -6.12, 106.9, { city: 'Jakarta Utara' })
+  ];
+  const out = U.overtureBranches(rows);
+  const names = out.map(b => b.name).sort();
+  assert.deepEqual(names, ['BNI Bawen', 'BNI Bukittinggi', 'BNI Cabang Jambi', 'BNI Jalan Merdeka', 'BNI KCP Ungaran', 'BNI Plumpang Raya', 'Kantor Cabang BNI Salatiga']);
+  const ung = out.find(b => b.name === 'BNI KCP Ungaran');
+  assert.equal(ung.id, 'ov:a10000000000');
+  assert.equal(ung.source, 'overture');
+  assert.equal(ung.type, 'KCP');
+  assert.equal(ung.phone, '+6224123456', 'nomor call center dibuang, telepon duplikat dipakai');
+  assert.equal(out.find(b => b.name === 'BNI Jalan Merdeka').generic, true);
+  assert.equal(out.find(b => b.name === 'Kantor Cabang BNI Salatiga').type, 'KC');
+  // Simpan ringkas lalu baca lagi
+  const packed = U.packOverture(out, { release: 'uji' });
+  assert.equal(packed.release, 'uji');
+  const back = U.unpackOverture(JSON.parse(JSON.stringify(packed)));
+  assert.deepEqual(back.map(b => b.name).sort(), names);
+  assert.equal(back.find(b => b.name === 'BNI Jalan Merdeka').generic, true);
+  assert.deepEqual(U.unpackOverture({}), []);
+});
+
+test('kantor tambahan yang berimpit dengan kantor utama dibuang', () => {
+  const base = [{ id: 'osm:n1', name: 'BNI KCP Ungaran', lat: -7.1386, lon: 110.4053 }];
+  const at = (m, bearing) => ({ lat: -7.1386 + (bearing === 'n' ? m / 110574 : 0), lon: 110.4053 + (bearing === 'e' ? m / 110400 : 0) });
+  const extra = [
+    Object.assign({ id: 'ov:1', name: 'BNI Ungaran' }, at(150, 'n')),
+    Object.assign({ id: 'ov:2', name: 'BNI KCP Bawen' }, at(150, 'e')),
+    Object.assign({ id: 'ov:3', name: 'BNI Jalan Diponegoro', generic: true }, at(200, 'n')),
+    Object.assign({ id: 'ov:4', name: 'BNI KC Semarang' }, at(60, 'e')),
+    Object.assign({ id: 'ov:5', name: 'BNI Ungaran Barat' }, at(400, 'n'))
+  ];
+  assert.deepEqual(U.dropNearBranches(extra, base).map(b => b.id), ['ov:2', 'ov:5']);
+  assert.equal(U.dropNearBranches(extra, []).length, 5);
 });
 
 test('angka rupiah', () => {

@@ -24,6 +24,10 @@
     branchesOsmError: null,
     branchesLoading: false,
     branchesImport: [],
+    branchesOverture: [],
+    branchesOvertureMeta: null,
+    branchesManual: [],
+    branchDraft: null,
     branches: [],
     branchById: new Map(),
     profiles: {},
@@ -258,6 +262,7 @@
           '<div class="legend-row"><i class="sw green"></i><span>Hijau</span><b data-r="3"></b></div>' +
           '<div class="legend-row"><i class="sw out"></i><span>Luar zona</span><b data-r="4"></b></div>' +
           '<div class="legend-row"><i class="sw bank"></i><span>Kantor BNI</span></div>' +
+          '<div class="legend-row"><i class="sw bank-ov"></i><span>Kantor BNI (Overture)</span></div>' +
           '<div class="legend-row"><i class="sw saved"></i><span>Prospek saya</span></div>' +
           '<div class="legend-credit" hidden>Data kantor &amp; pusat ekonomi &copy; kontributor OpenStreetMap</div>';
         L.DomEvent.disableClickPropagation(div);
@@ -417,7 +422,7 @@
   function branchIcon(b, active) {
     return L.divIcon({
       className: 'bm-wrap', iconSize: [26, 26], iconAnchor: [13, 13],
-      html: '<div class="bm t-' + esc(b.type) + (active ? ' active' : '') + '"><svg class="i"><use href="#i-bank"/></svg></div>'
+      html: '<div class="bm t-' + esc(b.type) + ' src-' + esc(b.source || 'osm') + (active ? ' active' : '') + '"><svg class="i"><use href="#i-bank"/></svg></div>'
     });
   }
 
@@ -626,9 +631,33 @@
   // Data kantor BNI
   // ---------------------------------------------------------------------------
 
+  // Kantor yang Anda ubah atau sembunyikan menggantikan data aslinya (OSM, impor, atau Overture).
+  function replacedBranchIds() {
+    var set = new Set();
+    state.branchesManual.forEach(function (m) { if (m.replaces) set.add(m.replaces); });
+    return set;
+  }
+
+  var OVERTURE_ATTR = 'Kantor tambahan &copy; <a href="https://overturemaps.org/" target="_blank" rel="noopener">Overture Maps</a>';
+  var overtureAttrOn = false;
+  function setOvertureAttribution(on) {
+    if (!map || on === overtureAttrOn) return;
+    overtureAttrOn = on;
+    if (on) map.attributionControl.addAttribution(OVERTURE_ATTR);
+    else map.attributionControl.removeAttribution(OVERTURE_ATTR);
+  }
+
   function rebuildBranches() {
-    var osm = state.settings.branchSource === 'import' ? [] : state.branchesOsm;
-    var imp = state.branchesImport;
+    var importOnly = state.settings.branchSource === 'import';
+    var replaced = replacedBranchIds();
+    var notReplaced = function (b) { return !replaced.has(b.id); };
+    var manual = state.branchesManual.filter(function (m) { return !m.hidden; });
+    var osmAll = importOnly ? [] : state.branchesOsm;
+    var osm = osmAll.filter(notReplaced);
+    var imp = state.branchesImport.filter(notReplaced);
+    // Overture hanya melengkapi: kantor yang berimpit dengan sumber lain (termasuk yang Anda ubah) tidak dipakai.
+    var ov = importOnly || state.settings.overture === false ? []
+      : U.dropNearBranches(state.branchesOverture, osmAll.concat(state.branchesImport, manual)).filter(notReplaced);
     if (imp.length && osm.length) {
       // Kantor OSM yang berimpit (< 200 m) dengan kantor impor dianggap sama; pakai data impor.
       var grid = new Map();
@@ -648,9 +677,10 @@
         return true;
       });
     }
-    state.branches = osm.concat(imp);
+    state.branches = osm.concat(imp, manual, ov);
+    setOvertureAttribution(ov.length > 0);
     state.branches.forEach(function (b) {
-      b._hay = normQ([b.name, b.address, b.city, b.type, b.kode].join(' '));
+      b._hay = normQ([b.name, b.alt, b.address, b.city, b.type, b.kode].join(' '));
     });
     state.branchById = new Map(state.branches.map(function (b) { return [b.id, b]; }));
     visibleCache = null;
@@ -701,7 +731,7 @@
 
   function selectBranch(b, opts) {
     opts = opts || {};
-    if (state.pick) cancelPick();
+    if (state.pick) cancelPick(true);
     var prevId = state.activeBranch ? state.activeBranch.id : null;
     if (!prevId || prevId !== b.id) state.sectorFilter = null;
     state.activeBranch = b;
@@ -1312,6 +1342,15 @@
   // Daftar: cabang
   // ---------------------------------------------------------------------------
 
+  var BRANCH_SOURCE_LABEL = { osm: 'OpenStreetMap', overture: 'Overture Maps', import: 'Impor Excel', manual: 'Tambahan Anda' };
+  var BRANCH_SOURCE_NOTE = { import: 'Dari impor Excel', manual: 'Ditambahkan manual', overture: 'Alamat belum tercatat', osm: 'Alamat belum tercatat di OSM' };
+
+  function bniQueryText(q) {
+    q = U.normSpace(q);
+    if (!q) return 'BNI';
+    return /bni|negara indonesia/i.test(q) ? q : 'BNI ' + q;
+  }
+
   function renderBranchTypeChips() {
     var counts = {};
     state.branches.forEach(function (b) { counts[b.type] = (counts[b.type] || 0) + 1; });
@@ -1339,9 +1378,13 @@
       meta = state.branchesOsmError ? 'Data kantor belum termuat. ' + esc(state.branchesOsmError) + ' <button type="button" data-action="reload-branches">Coba lagi</button>'
         : 'Belum ada data kantor. Impor daftar kantor dari Excel.';
     } else {
+      var bySrc = {};
+      state.branches.forEach(function (b) { bySrc[b.source] = (bySrc[b.source] || 0) + 1; });
       var parts = [U.formatCount(state.branches.length) + ' kantor BNI'];
       if (nOsm) parts.push('OpenStreetMap ' + U.relTime(state.branchesOsmT));
-      if (state.branchesImport.length) parts.push(U.formatCount(state.branchesImport.length) + ' dari impor');
+      if (bySrc.overture) parts.push(U.formatCount(bySrc.overture) + ' dari Overture');
+      if (bySrc.import) parts.push(U.formatCount(bySrc.import) + ' dari impor');
+      if (bySrc.manual) parts.push(U.formatCount(bySrc.manual) + ' tambahan Anda');
       meta = esc(parts.join(' · ')) + (state.settings.branchSource !== 'import' ? ' · <button type="button" data-action="reload-branches">Perbarui</button>' : '');
       meta += '<br>Diurutkan dari ' + (state.userLoc ? 'lokasi Anda' : 'tengah peta') + '.';
     }
@@ -1351,9 +1394,10 @@
     var html = shown.map(function (x) {
       var b = x.b;
       var active = state.activeBranch && state.activeBranch.id === b.id;
-      var sub = [b.address, b.city].filter(Boolean).join(', ') || (b.source === 'import' ? 'Dari impor Excel' : 'Alamat belum tercatat di OSM');
+      var sub = [b.address, b.city].filter(Boolean).join(', ') || BRANCH_SOURCE_NOTE[b.source] || 'Alamat belum tercatat';
+      if (b.source === 'overture' || b.source === 'manual') sub = BRANCH_SOURCE_LABEL[b.source] + ' · ' + sub;
       return '<li><button type="button" class="item' + (active ? ' selected' : '') + '" data-branch="' + esc(b.id) + '">' +
-        '<span class="bt t-' + esc(b.type) + '">' + esc(b.type === 'Kantor' ? 'BNI' : b.type) + '</span>' +
+        '<span class="bt t-' + esc(b.type) + ' src-' + esc(b.source || 'osm') + '">' + esc(b.type === 'Kantor' ? 'BNI' : b.type) + '</span>' +
         '<span class="item-main"><span class="item-title">' + esc(b.name) + '</span><span class="item-sub">' + esc(sub) + '</span></span>' +
         '<span class="item-side">' + (x.d != null ? '<b>' + U.formatKm(x.d) + '</b>' : '') + '</span></button></li>';
     }).join('');
@@ -1361,7 +1405,12 @@
       html += '<li><button type="button" class="btn more" data-action="more-branches">Tampilkan ' +
         U.formatCount(Math.min(60, list.length - shown.length)) + ' lagi (dari ' + U.formatCount(list.length) + ')</button></li>';
     }
-    if (!list.length && state.branches.length) html = '<li class="empty"><strong>Tidak ada kantor yang cocok</strong><p>Coba kata kunci lain atau aktifkan jenis kantor lain.</p></li>';
+    if (!list.length && state.branches.length) {
+      html = '<li class="empty"><strong>Tidak ada kantor yang cocok</strong><p>Coba kata kunci lain atau aktifkan jenis kantor lain. ' +
+        'Kalau kantornya memang belum ada, cari lokasinya di Google Maps lalu tambahkan.</p><div class="btn-row center">' +
+        '<button type="button" class="btn" data-action="gmaps-bni">Cari "' + esc(bniQueryText(state.branchQuery)) + '" di Google Maps</button>' +
+        '<button type="button" class="btn primary" data-action="add-branch">Tambah kantor</button></div></li>';
+    }
     $('branchList').innerHTML = html;
   }
 
@@ -1377,8 +1426,11 @@
     if (b) {
       var addr = [b.address, b.city].filter(Boolean).join(', ');
       head = '<strong>Sekitar ' + esc(b.name) + '</strong><span>' + esc(addr || 'Alamat kantor belum tercatat') +
-        ' · zona ' + t.r3 + ' km, jangkauan ' + t.rmax + ' km · <a href="https://www.google.com/maps/search/?api=1&query=' + b.lat + ',' + b.lon +
-        '" target="_blank" rel="noopener">Lokasi kantor</a></span>' + gmapsLinksHTML(b.lat, b.lon);
+        ' · zona ' + t.r3 + ' km, jangkauan ' + t.rmax + ' km</span>' +
+        (b.source === 'overture' ? '<span class="src-note">Kantor dari data Overture Maps; lokasinya bisa kurang tepat. Cocokkan dengan Google Maps, lalu ubah bila perlu.</span>' : '') +
+        '<span class="ctx-actions"><a href="https://www.google.com/maps/search/?api=1&query=' + b.lat + ',' + b.lon +
+        '" target="_blank" rel="noopener">Lokasi kantor</a><button type="button" class="linklike" data-action="edit-branch">Ubah data kantor</button></span>' +
+        gmapsLinksHTML(b.lat, b.lon);
     } else if (ctx && ctx.kind === 'area') {
       var mc = map.getCenter();
       head = '<strong>Area peta saat ini</strong><span>Zona dihitung dari kantor BNI terdekat. Geser peta untuk area lain' +
@@ -1611,7 +1663,7 @@
     opts = opts || {};
     var item = findItem(id);
     if (!item) return;
-    if (state.pick) cancelPick();
+    if (state.pick) cancelPick(true);
     state.selectedId = item.id;
     dossierItem = item;
     if (item.profile && item.profile.keuangan) {
@@ -2109,7 +2161,9 @@
   function startPick(kind, id) {
     state.pick = { kind: kind, id: id || null };
     var p = id ? state.profiles[id] : null;
-    $('pickText').textContent = kind === 'new' ? 'Ketuk lokasi prospek baru di peta' : 'Ketuk lokasi baru untuk ' + (p && p.name ? p.name : 'prospek ini');
+    var d = state.branchDraft;
+    $('pickText').textContent = kind === 'branch' ? 'Ketuk lokasi ' + (d && d.name ? d.name : 'kantor BNI') + ' di peta'
+      : kind === 'new' ? 'Ketuk lokasi prospek baru di peta' : 'Ketuk lokasi baru untuk ' + (p && p.name ? p.name : 'prospek ini');
     $('pickBanner').hidden = false;
     $('mapwrap').classList.add('picking');
     if (isMobile()) {
@@ -2118,12 +2172,15 @@
     }
   }
 
-  function cancelPick() {
+  // placing = true saat titik sudah dipilih (bukan dibatalkan).
+  function cancelPick(placing) {
     var pick = state.pick;
     state.pick = null;
     $('pickBanner').hidden = true;
     $('mapwrap').classList.remove('picking');
     if (pick && pick.kind === 'move' && isMobile() && dossierItem) $('dossier').hidden = false;
+    // Batal memilih lokasi kantor: kembali ke formulir agar isian tidak hilang.
+    if (pick && pick.kind === 'branch' && placing !== true && state.branchDraft) showBranchDialog();
   }
 
   function onMapClick(e) {
@@ -2147,8 +2204,15 @@
   function placePick(rawLat, rawLon) {
     var pick = state.pick;
     if (!pick) return;
-    cancelPick();
+    cancelPick(true);
     var lat = U.round6(rawLat), lon = U.round6(rawLon);
+    if (pick.kind === 'branch') {
+      if (!state.branchDraft) return;
+      state.branchDraft.lat = lat;
+      state.branchDraft.lon = lon;
+      showBranchDialog();
+      return;
+    }
     if (pick.kind === 'new') {
       var p = U.newProfile({ name: '', entity: 'PT', lat: lat, lon: lon, geo: 'exact' }, 'manual');
       state.profiles[p.id] = p;
@@ -2165,6 +2229,204 @@
       openDossier(q.id, { pan: false });
       toast('Lokasi prospek diperbarui.');
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Kantor tambahan, ubahan, dan yang disembunyikan (tersimpan di perangkat ini)
+  // ---------------------------------------------------------------------------
+
+  async function saveManualBranches() {
+    await S.set('branches:manual', state.branchesManual);
+    S.requestPersist();
+  }
+
+  function manualRecord(id) {
+    return state.branchesManual.find(function (m) { return m.id === id; }) || null;
+  }
+
+  // Kantor baru (opts.name dari kata pencarian) atau ubah kantor yang ada (opts.branch).
+  function openBranchDialog(opts) {
+    opts = opts || {};
+    var b = opts.branch || null;
+    var c = map.getCenter();
+    state.branchDraft = {
+      editId: b ? b.id : null,
+      source: b ? b.source : 'manual',
+      name: b ? b.name : (opts.name || ''),
+      type: b ? b.type : 'KCP',
+      lat: b ? b.lat : null,
+      lon: b ? b.lon : null,
+      address: b ? b.address || '' : '',
+      city: b ? b.city || '' : '',
+      hint: b ? null : { lat: c.lat, lon: c.lng }
+    };
+    $('brCoord').value = '';
+    showBranchDialog();
+  }
+
+  function showBranchDialog() {
+    var d = state.branchDraft;
+    if (!d) return;
+    var orig = d.editId ? state.branchById.get(d.editId) : null;
+    var rec = orig && orig.source === 'manual' ? manualRecord(orig.id) : null;
+    $('dlgBranchTitle').textContent = orig ? 'Ubah data kantor' : 'Tambah kantor BNI';
+    $('brName').value = d.name;
+    $('brType').innerHTML = U.BRANCH_TYPES.map(function (t) {
+      return '<option value="' + t.id + '"' + (t.id === d.type ? ' selected' : '') + '>' + esc(t.id === 'Kantor' ? 'Lainnya / belum tahu' : t.long + ' (' + t.label + ')') + '</option>';
+    }).join('');
+    $('brAddr').value = d.address;
+    $('brCity').value = d.city;
+    $('brLocText').textContent = d.lat != null ? d.lat.toFixed(6) + ', ' + d.lon.toFixed(6) : 'Belum ditentukan';
+    $('brLocText').classList.toggle('missing', d.lat == null);
+    var gq = U.normSpace(d.name) || 'BNI';
+    var gc = d.lat != null ? { lat: d.lat, lon: d.lon } : d.hint;
+    $('brGmaps').href = gc ? gmapsSearchUrl(/bni|negara indonesia/i.test(gq) ? gq : 'BNI ' + gq, gc.lat, gc.lon, 14) : 'https://www.google.com/maps/search/BNI';
+    var note;
+    if (!orig) note = 'Kantor tersimpan di perangkat ini dan ikut dalam file cadangan.';
+    else if (rec && rec.replaces) note = 'Anda sudah mengubah kantor ini. Data aslinya bisa dipakai lagi.';
+    else if (rec) note = 'Kantor tambahan Anda.';
+    else note = 'Data asli dari ' + (BRANCH_SOURCE_LABEL[orig.source] || 'peta') + '. Perubahan Anda menggantikannya di perangkat ini saja.';
+    $('brNote').textContent = note;
+    $('btnBrRestore').hidden = !(rec && rec.replaces);
+    $('btnBrRemove').hidden = !orig;
+    $('btnBrRemove').textContent = rec && !rec.replaces ? 'Hapus kantor' : 'Sembunyikan';
+    $('brError').hidden = true;
+    if (!$('dlgBranch').open) $('dlgBranch').showModal();
+    if (!d.name) $('brName').focus();
+  }
+
+  function readBranchForm() {
+    var d = state.branchDraft;
+    if (!d) return null;
+    d.name = $('brName').value;
+    d.type = $('brType').value;
+    d.address = $('brAddr').value;
+    d.city = $('brCity').value;
+    return d;
+  }
+
+  function branchFormError(msg) {
+    $('brError').textContent = msg;
+    $('brError').hidden = false;
+  }
+
+  function pickBranchLocation() {
+    var d = readBranchForm();
+    if (!d) return;
+    // Mode pilih diaktifkan sebelum formulir ditutup, agar draf tidak ikut dibuang.
+    startPick('branch');
+    $('dlgBranch').close();
+    if (d.lat != null) ensureVisible(d.lat, d.lon, 16);
+  }
+
+  function applyBranchCoord() {
+    var d = readBranchForm();
+    var ll = U.parseLatLonPair($('brCoord').value);
+    if (!d || !ll) {
+      branchFormError('Koordinat tidak dikenali. Contoh: -7.1386, 110.4053, atau tautan Google Maps yang memuat koordinat.');
+      return;
+    }
+    d.lat = U.round6(ll[0]);
+    d.lon = U.round6(ll[1]);
+    $('brCoord').value = '';
+    ensureVisible(d.lat, d.lon, 16);
+    showBranchDialog();
+  }
+
+  async function saveBranchDialog() {
+    var d = readBranchForm();
+    if (!d) return;
+    var name = U.normSpace(d.name);
+    if (!name) { branchFormError('Isi nama kantor, mis. BNI KCP Tlogosari.'); $('brName').focus(); return; }
+    if (d.lat == null) { branchFormError('Tentukan lokasi kantor: pilih di peta, atau tempel koordinat/tautan Google Maps.'); return; }
+    if (!U.inIndonesia(d.lat, d.lon)) { branchFormError('Lokasi ini di luar Indonesia. Periksa lagi koordinatnya.'); return; }
+    var now = Date.now();
+    var orig = d.editId ? state.branchById.get(d.editId) : null;
+    var rec = orig && orig.source === 'manual' ? manualRecord(orig.id) : null;
+    if (!rec) {
+      rec = { id: U.uid('man:'), source: 'manual', createdAt: now };
+      if (orig) rec.replaces = orig.id;
+      state.branchesManual.push(rec);
+    }
+    Object.assign(rec, {
+      name: name, type: d.type, lat: d.lat, lon: d.lon, address: U.normSpace(d.address), city: U.normSpace(d.city),
+      phone: rec.phone || (orig && orig.phone) || '', hours: rec.hours || (orig && orig.hours) || '', updatedAt: now
+    });
+    delete rec.hidden;
+    await saveManualBranches();
+    var wasActive = !!(orig && state.activeBranch && state.activeBranch.id === orig.id);
+    if (wasActive) state.activeBranch = null;
+    state.branchDraft = null;
+    $('dlgBranch').close();
+    rebuildBranches();
+    var nb = state.branchById.get(rec.id);
+    if (nb && (wasActive || !orig)) selectBranch(nb);
+    toast(orig ? 'Data kantor diperbarui.' : 'Kantor "' + name + '" ditambahkan.');
+  }
+
+  // Hapus kantor tambahan, kembalikan data asli, atau sembunyikan kantor yang salah.
+  async function removeBranchFromDialog(mode) {
+    var d = state.branchDraft;
+    var orig = d && d.editId ? state.branchById.get(d.editId) : null;
+    if (!orig) return;
+    var rec = orig.source === 'manual' ? manualRecord(orig.id) : null;
+    var drop = function (r) { state.branchesManual = state.branchesManual.filter(function (m) { return m !== r; }); };
+    if (mode === 'restore') {
+      if (!rec || !rec.replaces) return;
+      drop(rec);
+    } else if (rec && !rec.replaces) {
+      if (!(await confirmDialog('Hapus kantor ini?', '"' + orig.name + '" akan dihapus dari perangkat ini.'))) return;
+      drop(rec);
+    } else {
+      if (!(await confirmDialog('Sembunyikan kantor ini?', '"' + orig.name + '" tidak akan tampil di peta dan daftar kantor. ' +
+        'Anda bisa menampilkannya lagi dari Pengaturan.', 'Sembunyikan'))) return;
+      var target = rec ? rec.replaces : orig.id;
+      if (rec) drop(rec);
+      state.branchesManual.push({ id: 'man:hide:' + target, source: 'manual', replaces: target, hidden: true, name: orig.name, lat: orig.lat, lon: orig.lon, updatedAt: Date.now() });
+    }
+    await saveManualBranches();
+    state.branchDraft = null;
+    $('dlgBranch').close();
+    var wasActive = state.activeBranch && state.activeBranch.id === orig.id;
+    rebuildBranches();
+    if (wasActive) {
+      var back = mode === 'restore' ? state.branchById.get(rec.replaces) : null;
+      if (back) selectBranch(back);
+      else clearBranch();
+    }
+    toast(mode === 'restore' ? 'Data asli kantor dipakai lagi.' : rec && !rec.replaces ? 'Kantor dihapus.' : 'Kantor disembunyikan.');
+  }
+
+  async function unhideBranches() {
+    var n = state.branchesManual.filter(function (m) { return m.hidden; }).length;
+    if (!n) return;
+    state.branchesManual = state.branchesManual.filter(function (m) { return !m.hidden; });
+    await saveManualBranches();
+    rebuildBranches();
+    fillBranchInfo();
+    toast(n + ' kantor ditampilkan lagi.');
+  }
+
+  // Data kantor BNI dari Overture Maps (berkas skrip agar bisa dimuat juga dari file://).
+  var overturePromise = null;
+  function ensureOverture() {
+    if (overturePromise) return overturePromise;
+    overturePromise = new Promise(function (resolve) {
+      var done = function () {
+        var data = self.PP_OVERTURE_BNI;
+        state.branchesOverture = U.unpackOverture(data);
+        state.branchesOvertureMeta = data ? { release: data.release || '', count: state.branchesOverture.length } : null;
+        resolve(state.branchesOverture);
+      };
+      if (self.PP_OVERTURE_BNI) { done(); return; }
+      var el = document.createElement('script');
+      el.src = 'data/kantor-bni-overture.js';
+      el.async = true;
+      el.onload = done;
+      el.onerror = function () { overturePromise = null; resolve([]); };
+      document.head.appendChild(el);
+    });
+    return overturePromise;
   }
 
   // ---------------------------------------------------------------------------
@@ -2252,13 +2514,11 @@
     $('setOthers').checked = !!s.includeOthers;
     $('setAuto').checked = !!s.autoDetect;
     $('setBranchSource').value = s.branchSource;
+    $('setOverture').checked = s.overture !== false;
     $('setTheme').value = s.theme;
     $('setOverpass').innerHTML = opt('auto', 'Otomatis (pindah bila sibuk)', s.overpass === 'auto') +
       O.ENDPOINTS.map(function (e) { return opt(e.url, e.label, s.overpass === e.url); }).join('');
-    var info = [];
-    if (state.branchesOsm.length) info.push(U.formatCount(state.branchesOsm.length) + ' kantor dari OpenStreetMap, diperbarui ' + U.relTime(state.branchesOsmT));
-    if (state.branchesImport.length) info.push(U.formatCount(state.branchesImport.length) + ' kantor dari impor Excel');
-    $('setBranchInfo').textContent = info.join(' · ') || 'Belum ada data kantor.';
+    fillBranchInfo();
     S.isPersistent().then(function (ok) {
       $('setStorageInfo').textContent = ok
         ? 'Prospek, catatan, dan cache peta tersimpan hanya di browser ini (' + U.formatCount(prospectViews().length) + ' prospek). Unduh cadangan secara berkala.'
@@ -2300,7 +2560,7 @@
     var s = state.settings;
     var radiiChanged = r.join() !== s.radii.join() || rMax !== s.maxRadius;
     var othersChanged = $('setOthers').checked !== s.includeOthers;
-    var sourceChanged = $('setBranchSource').value !== s.branchSource;
+    var sourceChanged = $('setBranchSource').value !== s.branchSource || $('setOverture').checked !== (s.overture !== false);
     var themeChanged = $('setTheme').value !== s.theme;
     var googleChanged = source !== s.source || gKey !== s.googleKey;
     s.radii = r;
@@ -2310,6 +2570,7 @@
     s.includeOthers = $('setOthers').checked;
     s.autoDetect = $('setAuto').checked;
     s.branchSource = $('setBranchSource').value;
+    s.overture = $('setOverture').checked;
     s.overpass = $('setOverpass').value;
     s.theme = $('setTheme').value;
     s.source = source;
@@ -2324,6 +2585,7 @@
     if (sourceChanged) {
       if (s.branchSource !== 'import' && !state.branchesOsm.length) loadOsmBranches(false);
       else rebuildBranches();
+      if (s.overture && !state.branchesOvertureMeta) ensureOverture().then(rebuildBranches);
     }
     drawZones();
     if (googleChanged) {
@@ -2362,12 +2624,30 @@
     return p;
   }
 
+  function fillBranchInfo() {
+    var info = [];
+    if (state.branchesOsm.length) info.push(U.formatCount(state.branchesOsm.length) + ' kantor dari OpenStreetMap, diperbarui ' + U.relTime(state.branchesOsmT));
+    var ovShown = state.branches.filter(function (b) { return b.source === 'overture'; }).length;
+    if (state.branchesOvertureMeta) {
+      info.push(U.formatCount(ovShown) + ' kantor tambahan dari Overture Maps (rilis ' + state.branchesOvertureMeta.release + '; yang berimpit dengan OpenStreetMap tidak ditampilkan)');
+    }
+    if (state.branchesImport.length) info.push(U.formatCount(state.branchesImport.length) + ' kantor dari impor Excel');
+    var own = state.branchesManual.filter(function (m) { return !m.hidden; }).length;
+    var hidden = state.branchesManual.length - own;
+    if (own) info.push(U.formatCount(own) + ' kantor Anda tambahkan/ubah');
+    if (hidden) info.push(U.formatCount(hidden) + ' kantor disembunyikan');
+    $('setBranchInfo').textContent = info.join(' · ') || 'Belum ada data kantor.';
+    $('btnUnhideBranches').hidden = !hidden;
+    $('btnUnhideBranches').lastChild.textContent = 'Tampilkan lagi ' + U.formatCount(hidden) + ' kantor yang disembunyikan';
+  }
+
   function backupData() {
     var data = {
       app: 'peta-prospek-kredit', version: 1, exportedAt: new Date().toISOString(),
       settings: Object.assign({}, state.settings, { googleKey: '' }),
       profiles: Object.keys(state.profiles).map(function (id) { return state.profiles[id]; }),
-      branchesImport: state.branchesImport
+      branchesImport: state.branchesImport,
+      branchesManual: state.branchesManual
     };
     X.downloadBlob(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }), 'cadangan-prospek-' + U.isoDate(new Date()) + '.json');
   }
@@ -2401,6 +2681,23 @@
     if (restoredBranches.length && !state.branchesImport.length) {
       state.branchesImport = restoredBranches;
       await S.set('branches:import', state.branchesImport);
+    }
+    // Kantor tambahan/ubahan: gabung per id, yang lebih baru menang.
+    if (Array.isArray(data.branchesManual)) {
+      var mine = new Map(state.branchesManual.map(function (m) { return [m.id, m]; }));
+      data.branchesManual.forEach(function (m) {
+        if (!m || typeof m.id !== 'string' || !/^man:/.test(m.id) || !isFinite(m.lat) || !isFinite(m.lon)) return;
+        var cur = mine.get(m.id);
+        if (cur && (cur.updatedAt || 0) >= (m.updatedAt || 0)) return;
+        mine.set(m.id, {
+          id: m.id, source: 'manual', name: String(m.name || 'BNI'), type: U.BRANCH_TYPES.some(function (t) { return t.id === m.type; }) ? m.type : 'Kantor',
+          lat: +m.lat, lon: +m.lon, address: String(m.address || ''), city: String(m.city || ''), phone: String(m.phone || ''), hours: String(m.hours || ''),
+          replaces: typeof m.replaces === 'string' ? m.replaces : undefined, hidden: !!m.hidden || undefined,
+          createdAt: m.createdAt || 0, updatedAt: m.updatedAt || 0
+        });
+      });
+      state.branchesManual = Array.from(mine.values());
+      await S.set('branches:manual', state.branchesManual);
     }
     if (data.settings) {
       var keepView = state.settings.view;
@@ -2710,6 +3007,12 @@
         runDetection({});
         break;
       case 'add-prospect': startPick('new'); break;
+      case 'add-branch': openBranchDialog({ name: state.branchQuery ? bniQueryText(state.branchQuery) : '' }); break;
+      case 'edit-branch': if (state.activeBranch) openBranchDialog({ branch: state.activeBranch }); break;
+      case 'gmaps-bni':
+        var gc = state.userLoc || { lat: map.getCenter().lat, lon: map.getCenter().lng };
+        window.open(gmapsSearchUrl(bniQueryText(state.branchQuery), gc.lat, gc.lon, 13), '_blank', 'noopener');
+        break;
       case 'open-import': openImport(); break;
     }
   }
@@ -2750,7 +3053,20 @@
     $('btnExportProspects').addEventListener('click', exportProspects);
     $('btnAddProspect').addEventListener('click', function () { startPick('new'); });
     $('btnAddProspect2').addEventListener('click', function () { startPick('new'); });
-    $('btnPickCancel').addEventListener('click', cancelPick);
+    $('btnPickCancel').addEventListener('click', function () { cancelPick(); });
+    $('btnBrPick').addEventListener('click', pickBranchLocation);
+    $('btnBrCoord').addEventListener('click', applyBranchCoord);
+    $('brCoord').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); applyBranchCoord(); } });
+    $('btnBrSave').addEventListener('click', saveBranchDialog);
+    $('btnBrRemove').addEventListener('click', function () { removeBranchFromDialog('hide'); });
+    $('btnBrRestore').addEventListener('click', function () { removeBranchFromDialog('restore'); });
+    $('brName').addEventListener('change', function () { readBranchForm(); showBranchDialog(); });
+    $('dlgBranch').addEventListener('close', function () {
+      // Ditutup tanpa simpan dan tidak sedang memilih lokasi: buang draf.
+      if (!state.pick || state.pick.kind !== 'branch') state.branchDraft = null;
+    });
+    $('btnUnhideBranches').addEventListener('click', unhideBranches);
+    $('btnAddBranch').addEventListener('click', function () { openBranchDialog({ name: state.branchQuery ? bniQueryText(state.branchQuery) : '' }); });
     $('pickPaste').addEventListener('submit', onPickPaste);
     $('btnDetectArea').addEventListener('click', function () { runDetection({ manual: true }); });
     $('btnClearBranch').addEventListener('click', clearBranch);
@@ -2846,6 +3162,8 @@
       state.profiles[p.id] = sanitizeProfile(p);
     });
     state.branchesImport = (await S.get('branches:import')) || [];
+    state.branchesManual = (await S.get('branches:manual')) || [];
+    if (state.settings.overture !== false && state.settings.branchSource !== 'import') await ensureOverture();
     var cached = await S.get('branches:osm');
     if (cached && cached.items) { state.branchesOsm = cached.items; state.branchesOsmT = cached.t; }
     rebuildBranches();
@@ -2858,7 +3176,7 @@
     if (last) selectBranch(last, { fly: !state.settings.view });
     else if (state.settings.autoDetect && !isGoogleMode() && map.getZoom() >= 13) runDetection({ auto: true });
 
-    var stale = !cached || !cached.items || !cached.items.length || Date.now() - cached.t > O.BRANCH_TTL;
+    var stale = !cached || !cached.items || !cached.items.length || cached.v !== O.BRANCH_VERSION || Date.now() - cached.t > O.BRANCH_TTL;
     if (state.settings.branchSource !== 'import' && stale) {
       await loadOsmBranches(false);
       if (!state.activeBranch && state.settings.lastBranchId) {
