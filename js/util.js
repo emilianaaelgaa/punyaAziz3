@@ -74,7 +74,11 @@
     googleKey: '',
     googleBudget: 40,
     googleMonthlyCap: 4500,
-    googleDetailsCap: 900
+    googleDetailsCap: 900,
+    rmName: '',
+    rmTitle: 'Relationship Manager',
+    rmOffice: '',
+    waTemplate: ''
   };
 
   var INDONESIA_BBOX = [-11.5, 94.5, 6.5, 141.5];
@@ -1040,7 +1044,14 @@
     f_laba: ['lababersih', 'laba', 'labarugi', 'labatahunberjalan', 'netprofit', 'profit'],
     f_aset: ['totalaset', 'aset', 'asset', 'totalasset', 'jumlahaset', 'totalaktiva', 'aktiva'],
     f_liab: ['totalliabilitas', 'liabilitas', 'totalkewajiban', 'kewajiban', 'totalutang', 'totalhutang', 'utang', 'hutang', 'liabilities'],
-    f_ekuitas: ['ekuitas', 'totalekuitas', 'modal', 'modalsendiri', 'equity']
+    f_ekuitas: ['ekuitas', 'totalekuitas', 'modal', 'modalsendiri', 'equity'],
+    f_hpp: ['hpp', 'hargapokokpenjualan', 'bebanpokokpenjualan', 'hargapokok', 'cogs'],
+    f_piutang: ['piutangusaha', 'piutang', 'piutangdagang', 'accountsreceivable', 'receivable'],
+    f_persediaan: ['persediaan', 'persediaanbarang', 'inventory', 'stok'],
+    f_utangusaha: ['utangusaha', 'hutangusaha', 'utangdagang', 'hutangdagang', 'accountspayable', 'payable'],
+    f_penyusutan: ['penyusutan', 'bebanpenyusutan', 'depresiasi', 'depreciation'],
+    f_bunga: ['bebanbunga', 'biayabunga', 'bunga', 'interestexpense'],
+    f_angsuran: ['angsuranpinjaman', 'angsuranpertahun', 'angsuranbank', 'angsuran', 'debtservice']
   };
 
   var PEOPLE_FIELDS = {
@@ -1059,7 +1070,14 @@
     laba: MAIN_FIELDS.f_laba,
     aset: MAIN_FIELDS.f_aset,
     liabilitas: MAIN_FIELDS.f_liab,
-    ekuitas: MAIN_FIELDS.f_ekuitas
+    ekuitas: MAIN_FIELDS.f_ekuitas,
+    hpp: MAIN_FIELDS.f_hpp,
+    piutang: MAIN_FIELDS.f_piutang,
+    persediaan: MAIN_FIELDS.f_persediaan,
+    utangUsaha: MAIN_FIELDS.f_utangusaha,
+    penyusutan: MAIN_FIELDS.f_penyusutan,
+    bebanBunga: MAIN_FIELDS.f_bunga,
+    angsuranTahun: MAIN_FIELDS.f_angsuran
   };
 
   var BRANCH_FIELDS = {
@@ -1193,7 +1211,11 @@
     list.push({ nama: normSpace(p.nama), jabatan: p.jabatan || 'Lainnya', saham: p.saham == null ? null : p.saham });
   }
 
-  var FIN_KEYS = ['penjualan', 'laba', 'aset', 'liabilitas', 'ekuitas'];
+  var FIN_KEYS = ['penjualan', 'laba', 'aset', 'liabilitas', 'ekuitas',
+    'hpp', 'piutang', 'persediaan', 'utangUsaha', 'penyusutan', 'bebanBunga', 'angsuranTahun'];
+  // Isian keuangan tambahan untuk kalkulator kelayakan: [kunci, kolom MAIN_FIELDS].
+  var FIN_EXTRA = [['hpp', 'f_hpp'], ['piutang', 'f_piutang'], ['persediaan', 'f_persediaan'], ['utangUsaha', 'f_utangusaha'],
+    ['penyusutan', 'f_penyusutan'], ['bebanBunga', 'f_bunga'], ['angsuranTahun', 'f_angsuran']];
 
   function addFinance(list, f) {
     if (!f) return;
@@ -1266,14 +1288,16 @@
         .forEach(function (pair) {
           splitPeople(get(pair[0]), pair[1]).forEach(function (p) { addPerson(rec.pengurus, p); });
         });
-      addFinance(rec.keuangan, {
+      var fin = {
         tahun: parseYear(get('f_tahun')),
         penjualan: parseMoneyCell(get('f_penjualan'), hm.units.f_penjualan),
         laba: parseMoneyCell(get('f_laba'), hm.units.f_laba),
         aset: parseMoneyCell(get('f_aset'), hm.units.f_aset),
         liabilitas: parseMoneyCell(get('f_liab'), hm.units.f_liab),
         ekuitas: parseMoneyCell(get('f_ekuitas'), hm.units.f_ekuitas)
-      });
+      };
+      FIN_EXTRA.forEach(function (x) { fin[x[0]] = parseMoneyCell(get(x[1]), hm.units[x[1]]); });
+      addFinance(rec.keuangan, fin);
       // Beberapa baris untuk perusahaan yang sama (mis. per tahun) digabung.
       var key = rec.id ? 'id:' + rec.id : 'k:' + companyKey(rec.entity, rec.name) + '|' + normKey(rec.city);
       var prev = byKey[key];
@@ -1331,14 +1355,16 @@
       function get(f) { return hm.map[f] != null ? row[hm.map[f]] : undefined; }
       var rec = findRecordByRef(result.records, get('refId'), get('refName'));
       if (!rec) return;
-      addFinance(rec.keuangan, {
+      var fin = {
         tahun: parseYear(get('tahun')),
         penjualan: parseMoneyCell(get('penjualan'), hm.units.penjualan),
         laba: parseMoneyCell(get('laba'), hm.units.laba),
         aset: parseMoneyCell(get('aset'), hm.units.aset),
         liabilitas: parseMoneyCell(get('liabilitas'), hm.units.liabilitas),
         ekuitas: parseMoneyCell(get('ekuitas'), hm.units.ekuitas)
-      });
+      };
+      FIN_EXTRA.forEach(function (x) { fin[x[0]] = parseMoneyCell(get(x[0]), hm.units[x[0]]); });
+      addFinance(rec.keuangan, fin);
     });
   }
 
@@ -1386,6 +1412,7 @@
       source: source || base.source || 'manual',
       status: 'baru', plafond: null, produk: '', bidang: '', pic: '', followUp: '', catatan: '',
       isNasabah: false, tahunBerdiri: '', sumberData: '', pengurus: [], keuangan: [],
+      aktivitas: [], dokumen: {}, statusLog: [], kalkulator: {},
       geo: base.lat != null ? (base.geo || 'exact') : 'none',
       createdAt: now, updatedAt: now
     };
@@ -1819,6 +1846,498 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Kerja harian RM: prioritas, rute kunjungan, WhatsApp, kalender, kalkulator,
+  // dokumen pengajuan, aktivitas, laporan, dan perusahaan yang disembunyikan
+  // ---------------------------------------------------------------------------
+
+  // Tanggal ISO (YYYY-MM-DD) digeser n hari, tanpa terpengaruh zona waktu.
+  function addDaysISO(iso, n) {
+    var m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return '';
+    var d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3] + n));
+    return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate());
+  }
+
+  function isoFromTs(ts) { return ts ? isoDate(new Date(ts)) : ''; }
+
+  // Senin sampai Minggu dari minggu yang memuat tanggal iso.
+  function weekOf(iso) {
+    var m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    var dow = (new Date(Date.UTC(+m[1], +m[2] - 1, +m[3])).getUTCDay() + 6) % 7;
+    var from = addDaysISO(iso, -dow);
+    return { from: from, to: addDaysISO(from, 6) };
+  }
+
+  function formatRange(from, to) {
+    var a = from.split('-'), b = to.split('-');
+    if (a[0] === b[0] && a[1] === b[1]) return (+a[2]) + '–' + formatDate(to);
+    if (a[0] === b[0]) return (+a[2]) + ' ' + BULAN[+a[1] - 1] + ' – ' + formatDate(to);
+    return formatDate(from) + ' – ' + formatDate(to);
+  }
+
+  // Periode laporan: 'minggu' (ini), 'minggu-lalu', atau 'bulan' (ini).
+  function periodRange(kind, today) {
+    var r;
+    if (kind === 'minggu-lalu') r = weekOf(addDaysISO(today, -7));
+    else if (kind === 'bulan') {
+      var first = today.slice(0, 8) + '01';
+      var next = addDaysISO(first, 32).slice(0, 8) + '01';
+      r = { from: first, to: addDaysISO(next, -1) };
+    } else r = weekOf(today);
+    r.kind = kind || 'minggu';
+    r.label = formatRange(r.from, r.to);
+    return r;
+  }
+
+  function isOpenStatus(s) { return s !== 'ditolak' && s !== 'disetujui'; }
+
+  // --- 1. Prioritas ---------------------------------------------------------
+
+  var ENTITY_PRIORITY = { PT: 1, CV: 0.85, Firma: 0.75, UD: 0.7, PD: 0.7, Koperasi: 0.7, Lainnya: 0.55, Tbk: 0.3, BUMN: 0.3 };
+  var ZONE_PRIORITY = { red: 1, orange: 0.75, green: 0.45, out: 0.2 };
+  var STATUS_PRIORITY = { baru: 0.6, dihubungi: 0.9, kunjungan: 1, pengajuan: 0.7 };
+  var PRIORITY_LABEL = { tinggi: 'Prioritas tinggi', sedang: 'Prioritas sedang', rendah: 'Prioritas rendah', selesai: 'Selesai' };
+
+  // Skor 0–100: siapa yang sebaiknya dihubungi atau dikunjungi lebih dulu.
+  // Bobot: zona 30, kecocokan sektor 25, badan usaha 15, kontak 10, tahap pipeline 20.
+  function priorityScore(c, p, settings, today) {
+    if (p && !isOpenStatus(p.status)) {
+      return { score: 0, level: 'selesai', reasons: [p.status === 'ditolak' ? 'ditolak / tidak minat' : 'sudah cair'] };
+    }
+    var reasons = [];
+    var zone = c.zone || 'out';
+    var sec = SECTOR_BY_ID[c.sector || classifySector(c, p)] || SECTOR_BY_ID.lainnya;
+    var entity = (p && p.entity) || c.entity;
+    var ent = ENTITY_PRIORITY[entity] != null ? ENTITY_PRIORITY[entity] : 0.55;
+    var phoneText = [p && p.pic, p && p.phone, c.phone].filter(Boolean).join(' ');
+    var contact = waNumber(phoneText) ? 1 : (phoneText || c.website || (p && p.website) ? 0.7 : 0.3);
+    if (zone === 'red') reasons.push('zona merah');
+    else if (zone === 'orange') reasons.push('zona oranye');
+    if (sec.id !== 'lainnya' && sec.fit >= 0.9) reasons.push(sec.label.toLowerCase());
+    if (entity === 'Tbk' || entity === 'BUMN') reasons.push('biasanya di atas target plafond');
+    if (contact >= 0.7) reasons.push(contact === 1 ? 'ada nomor HP' : 'ada kontak');
+    var pipe = 0.5;
+    if (p) {
+      pipe = STATUS_PRIORITY[p.status] != null ? STATUS_PRIORITY[p.status] : 0.5;
+      var t = inTarget(p.plafond, settings || DEFAULT_SETTINGS);
+      if (t === true) { pipe = Math.min(1, pipe + 0.3); reasons.push('plafond sesuai target'); }
+      else if (t === false) { pipe = Math.max(0, pipe - 0.4); reasons.push('plafond di luar target'); }
+      if (p.followUp && today && p.followUp <= today) {
+        pipe = 1;
+        reasons.unshift(p.followUp < today ? 'follow-up terlambat' : 'follow-up hari ini');
+      }
+    }
+    var score = Math.round((ZONE_PRIORITY[zone] || 0.2) * 30 + sec.fit * 25 + ent * 15 + contact * 10 + pipe * 20);
+    return { score: score, level: score >= 70 ? 'tinggi' : score >= 50 ? 'sedang' : 'rendah', reasons: reasons };
+  }
+
+  // --- 1. Rencana rute kunjungan --------------------------------------------
+
+  var MAX_ROUTE_STOPS = 10;
+
+  // Urutan kunjungan terpendek (jarak garis lurus) dari titik awal (boleh null).
+  // ≤ 8 titik: semua urutan dicoba; lebih dari itu: tetangga terdekat lalu perbaikan 2-opt.
+  function planRoute(start, stops, opts) {
+    opts = opts || {};
+    var pts = (stops || []).filter(function (s) { return s && isFinite(s.lat) && isFinite(s.lon); });
+    var n = pts.length;
+    if (!n) return { stops: [], km: 0, legs: [] };
+    var back = !!(opts.returnToStart && start);
+    var all = pts.concat(start ? [start] : []);
+    var D = all.map(function (a) { return all.map(function (b) { return haversineKm(a.lat, a.lon, b.lat, b.lon); }); });
+    var S = start ? n : -1;
+    function cost(order) {
+      var km = 0, prev = S;
+      for (var k = 0; k < order.length; k++) {
+        if (prev >= 0) km += D[prev][order[k]];
+        prev = order[k];
+      }
+      if (back) km += D[prev][S];
+      return km;
+    }
+    var best = null, bestKm = Infinity;
+    var arr = pts.map(function (x, i) { return i; });
+    if (n <= 8) {
+      var permute = function (k) {
+        if (k <= 1) {
+          var c = cost(arr);
+          if (c < bestKm - 1e-9) { bestKm = c; best = arr.slice(); }
+          return;
+        }
+        for (var i = 0; i < k; i++) {
+          permute(k - 1);
+          var j = k % 2 === 0 ? i : 0;
+          var tmp = arr[j]; arr[j] = arr[k - 1]; arr[k - 1] = tmp;
+        }
+      };
+      permute(n);
+    } else {
+      var left = arr.slice(), order = [], cur = S;
+      if (cur < 0) { order.push(left.shift()); cur = order[0]; }
+      while (left.length) {
+        var bi = 0;
+        for (var q = 1; q < left.length; q++) if (D[cur][left[q]] < D[cur][left[bi]]) bi = q;
+        cur = left.splice(bi, 1)[0];
+        order.push(cur);
+      }
+      var improved = true;
+      bestKm = cost(order);
+      while (improved) {
+        improved = false;
+        for (var a = 0; a < n - 1; a++) {
+          for (var b = a + 1; b < n; b++) {
+            var cand = order.slice(0, a).concat(order.slice(a, b + 1).reverse(), order.slice(b + 1));
+            var ck = cost(cand);
+            if (ck < bestKm - 1e-9) { order = cand; bestKm = ck; improved = true; }
+          }
+        }
+      }
+      best = order;
+    }
+    var legs = [], prev = S;
+    best.forEach(function (i) { legs.push(prev >= 0 ? D[prev][i] : 0); prev = i; });
+    if (back) legs.push(D[prev][S]);
+    return { stops: best.map(function (i) { return pts[i]; }), km: bestKm, legs: legs };
+  }
+
+  function llStr(p) { return (+p.lat).toFixed(6) + ',' + (+p.lon).toFixed(6); }
+
+  // Tautan rute Google Maps (gratis). Tanpa origin, Google memakai lokasi pengguna saat ini.
+  function gmapsDirUrl(origin, stops, opts) {
+    opts = opts || {};
+    var pts = (stops || []).slice(0, MAX_ROUTE_STOPS);
+    if (!pts.length) return '';
+    var back = !!(opts.returnToStart && origin);
+    var dest = back ? origin : pts[pts.length - 1];
+    var way = (back ? pts : pts.slice(0, -1)).slice(0, 9);
+    var url = 'https://www.google.com/maps/dir/?api=1';
+    if (origin) url += '&origin=' + llStr(origin);
+    url += '&destination=' + llStr(dest);
+    if (way.length) url += '&waypoints=' + way.map(llStr).join('%7C');
+    return url + '&travelmode=driving';
+  }
+
+  // --- 5. WhatsApp ----------------------------------------------------------
+
+  // Nomor ponsel Indonesia pertama dalam teks bebas → "62812…" untuk wa.me. Telepon kantor (021…, 024…) diabaikan.
+  function waNumber(text) {
+    var re = /(\+?62|0)[\s.\-]?8[\d\s.\-()]{7,16}/g;
+    var s = String(text || ''), m;
+    while ((m = re.exec(s))) {
+      var d = m[0].replace(/\D/g, '');
+      d = d.indexOf('62') === 0 ? d.slice(2) : d.slice(1);
+      if (/^8\d{8,11}$/.test(d)) return '62' + d;
+    }
+    return '';
+  }
+
+  function waUrl(number, text) {
+    return 'https://wa.me/' + number + (text ? '?text=' + encodeURIComponent(text) : '');
+  }
+
+  var WA_TEMPLATE = 'Selamat {waktu}, {sapaan}. Perkenalkan, saya {nama_rm}, {jabatan} BNI {kantor}. ' +
+    'Kami ingin memperkenalkan fasilitas kredit modal kerja dan investasi dari BNI untuk {perusahaan}. ' +
+    'Apakah {sapaan} berkenan meluangkan waktu untuk berdiskusi, atau kami yang berkunjung? Terima kasih.';
+
+  function greetingFor(date) {
+    var h = (date || new Date()).getHours();
+    return h < 11 ? 'pagi' : h < 15 ? 'siang' : h < 18 ? 'sore' : 'malam';
+  }
+
+  // Sapaan dari isian PIC, mis. "Pak Budi Santoso, Direktur, 0812…" → "Bapak Budi Santoso".
+  function sapaanFor(pic) {
+    var s = String(pic || '').split(/[,;\/\n(]|\d/)[0];
+    var hon = 'Bapak/Ibu';
+    var m = s.match(/^\s*(pak|bapak|bpk\.?|bu|ibu|sdr\.?|sdri\.?)\s+/i);
+    if (m) {
+      hon = /^b?u|ibu|sdri/i.test(m[1]) && !/^bpk|^bapak|^pak/i.test(m[1]) ? 'Ibu' : 'Bapak';
+      s = s.slice(m[0].length);
+    }
+    var name = normSpace(s).split(' ').slice(0, 3).join(' ');
+    return /[a-z]/i.test(name) ? hon + ' ' + name : 'Bapak/Ibu';
+  }
+
+  function fillTemplate(tpl, vars) {
+    return normSpace(String(tpl || '').replace(/\{(\w+)\}/g, function (m, k) {
+      return vars[k] != null && vars[k] !== '' ? vars[k] : m;
+    }));
+  }
+
+  // --- 2. Agenda follow-up & kalender ---------------------------------------
+
+  // Prospek aktif dikelompokkan: terlambat, hari ini, 7 hari ke depan, nanti, dan belum dijadwalkan.
+  function agendaGroups(profiles, today) {
+    var g = { late: [], today: [], week: [], later: [], none: [] };
+    var weekEnd = addDaysISO(today, 7);
+    (profiles || []).forEach(function (p) {
+      if (!p || !p.name || !isOpenStatus(p.status)) return;
+      var f = p.followUp;
+      if (!f) g.none.push(p);
+      else if (f < today) g.late.push(p);
+      else if (f === today) g.today.push(p);
+      else if (f <= weekEnd) g.week.push(p);
+      else g.later.push(p);
+    });
+    var byDate = function (a, b) { return (a.followUp || '').localeCompare(b.followUp || '') || a.name.localeCompare(b.name, 'id'); };
+    Object.keys(g).forEach(function (k) { g[k].sort(byDate); });
+    return g;
+  }
+
+  function gcalUrl(ev) {
+    var d0 = ev.date.replace(/-/g, ''), d1 = addDaysISO(ev.date, 1).replace(/-/g, '');
+    return 'https://calendar.google.com/calendar/render?action=TEMPLATE&text=' + encodeURIComponent(ev.title) +
+      '&dates=' + d0 + '/' + d1 + (ev.details ? '&details=' + encodeURIComponent(ev.details) : '') +
+      (ev.location ? '&location=' + encodeURIComponent(ev.location) : '');
+  }
+
+  function icsEscape(s) {
+    return String(s == null ? '' : s).replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+  }
+
+  // Baris iCalendar maksimal 75 byte; lanjutan diawali spasi.
+  function icsFold(line) {
+    var out = [], cur = '', bytes = 0, limit = 75;
+    Array.from(line).forEach(function (ch) {
+      var cp = ch.codePointAt(0);
+      var len = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+      if (bytes + len > limit) { out.push(cur); cur = ' '; bytes = 1; limit = 75; }
+      cur += ch;
+      bytes += len;
+    });
+    out.push(cur);
+    return out.join('\r\n');
+  }
+
+  // Berkas .ics berisi acara sehari penuh: [{uid, date, title, details, location}].
+  function icsCalendar(events, now) {
+    var stamp = (now || new Date()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    var lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Peta Prospek Kredit//ID', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
+    (events || []).forEach(function (ev) {
+      lines.push('BEGIN:VEVENT', 'UID:' + ev.uid, 'DTSTAMP:' + stamp,
+        'DTSTART;VALUE=DATE:' + ev.date.replace(/-/g, ''), 'DTEND;VALUE=DATE:' + addDaysISO(ev.date, 1).replace(/-/g, ''),
+        'SUMMARY:' + icsEscape(ev.title));
+      if (ev.details) lines.push('DESCRIPTION:' + icsEscape(ev.details));
+      if (ev.location) lines.push('LOCATION:' + icsEscape(ev.location));
+      lines.push('END:VEVENT');
+    });
+    lines.push('END:VCALENDAR');
+    return lines.map(icsFold).join('\r\n') + '\r\n';
+  }
+
+  // --- 4. Aktivitas & status ------------------------------------------------
+
+  var ACTIVITY_TYPES = [
+    { id: 'telepon', label: 'Telepon' }, { id: 'wa', label: 'WhatsApp' }, { id: 'kunjungan', label: 'Kunjungan' },
+    { id: 'rapat', label: 'Rapat / presentasi' }, { id: 'email', label: 'Email' }, { id: 'lainnya', label: 'Lainnya' }
+  ];
+  var ACTIVITY_LABEL = {};
+  ACTIVITY_TYPES.forEach(function (a) { ACTIVITY_LABEL[a.id] = a.label; });
+  var STATUS_ORDER = { baru: 0, dihubungi: 1, kunjungan: 2, pengajuan: 3, disetujui: 4, ditolak: 4 };
+
+  function newActivity(o, today) {
+    o = o || {};
+    return {
+      id: uid('a'),
+      tanggal: /^\d{4}-\d{2}-\d{2}$/.test(o.tanggal || '') ? o.tanggal : today,
+      jenis: ACTIVITY_LABEL[o.jenis] ? o.jenis : 'lainnya',
+      hasil: normSpace(o.hasil),
+      langkah: normSpace(o.langkah),
+      t: Date.now()
+    };
+  }
+
+  // Status hanya maju otomatis: aktivitas apa pun → "dihubungi", kunjungan/rapat → "kunjungan".
+  function statusAfterActivity(status, jenis) {
+    status = status || 'baru';
+    if (!isOpenStatus(status)) return status;
+    var target = jenis === 'kunjungan' || jenis === 'rapat' ? 'kunjungan' : 'dihubungi';
+    return STATUS_ORDER[target] > (STATUS_ORDER[status] || 0) ? target : status;
+  }
+
+  function sortActivities(list) {
+    return (list || []).slice().sort(function (a, b) { return (b.tanggal || '').localeCompare(a.tanggal || '') || (b.t || 0) - (a.t || 0); });
+  }
+
+  function lastActivity(p) { return sortActivities(p && p.aktivitas)[0] || null; }
+
+  // --- 4. Laporan -----------------------------------------------------------
+
+  function weeklyReport(profiles, range, settings) {
+    var acts = [], byType = {}, contacted = {}, created = [], moved = { pengajuan: {}, disetujui: {}, ditolak: {} };
+    var list = (profiles || []).filter(function (p) { return p && p.name; });
+    list.forEach(function (p) {
+      (p.aktivitas || []).forEach(function (a) {
+        if (a.tanggal < range.from || a.tanggal > range.to) return;
+        acts.push({ p: p, a: a });
+        byType[a.jenis] = (byType[a.jenis] || 0) + 1;
+        contacted[p.id] = true;
+      });
+      var c = isoFromTs(p.createdAt);
+      if (c && c >= range.from && c <= range.to) created.push(p);
+      (p.statusLog || []).forEach(function (s) {
+        var d = isoFromTs(s.t);
+        if (moved[s.s] && d >= range.from && d <= range.to) moved[s.s][p.id] = p;
+      });
+    });
+    acts.sort(function (x, y) { return y.a.tanggal.localeCompare(x.a.tanggal) || (y.a.t || 0) - (x.a.t || 0); });
+    var movedOut = {};
+    Object.keys(moved).forEach(function (k) {
+      var ps = Object.keys(moved[k]).map(function (id) { return moved[k][id]; });
+      movedOut[k] = { count: ps.length, plafond: ps.reduce(function (s, p) { return s + (p.plafond || 0); }, 0), items: ps };
+    });
+    var pipeline = STATUSES.map(function (st) {
+      var ps = list.filter(function (p) { return (p.status || 'baru') === st.id; });
+      return { id: st.id, label: st.label, count: ps.length, plafond: ps.reduce(function (s, p) { return s + (p.plafond || 0); }, 0) };
+    });
+    var open = list.filter(function (p) { return isOpenStatus(p.status); });
+    var nextFrom = addDaysISO(range.to, 1), nextTo = addDaysISO(range.to, 7);
+    return {
+      range: range,
+      activities: acts,
+      byType: byType,
+      contacted: Object.keys(contacted).length,
+      created: created,
+      moved: movedOut,
+      pipeline: pipeline,
+      openCount: open.length,
+      openPlafond: open.reduce(function (s, p) { return s + (p.plafond || 0); }, 0),
+      inTarget: open.filter(function (p) { return inTarget(p.plafond, settings || DEFAULT_SETTINGS) === true; }).length,
+      upcoming: open.filter(function (p) { return p.followUp && p.followUp >= nextFrom && p.followUp <= nextTo; })
+    };
+  }
+
+  // Ringkasan teks untuk dikirim ke atasan (WhatsApp/email).
+  function reportText(rep, meta) {
+    meta = meta || {};
+    var types = ACTIVITY_TYPES.filter(function (t) { return rep.byType[t.id]; })
+      .map(function (t) { return t.label.toLowerCase() + ' ' + rep.byType[t.id]; });
+    var lines = ['Laporan aktivitas RM' + (meta.nama ? ' – ' + meta.nama : '') + (meta.kantor ? ' (BNI ' + meta.kantor + ')' : ''),
+      'Periode: ' + rep.range.label, ''];
+    lines.push('• Aktivitas: ' + rep.activities.length + (types.length ? ' (' + types.join(', ') + ')' : '') + ' ke ' + rep.contacted + ' prospek');
+    lines.push('• Prospek baru: ' + rep.created.length);
+    lines.push('• Masuk pengajuan: ' + rep.moved.pengajuan.count + (rep.moved.pengajuan.plafond ? ' (' + formatRpShort(rep.moved.pengajuan.plafond) + ')' : ''));
+    lines.push('• Disetujui/cair: ' + rep.moved.disetujui.count + (rep.moved.disetujui.plafond ? ' (' + formatRpShort(rep.moved.disetujui.plafond) + ')' : ''));
+    lines.push('• Pipeline aktif: ' + rep.openCount + ' prospek, ' + formatRpShort(rep.openPlafond) + ' (' + rep.inTarget + ' sesuai target)');
+    lines.push('• Follow-up 7 hari berikutnya: ' + rep.upcoming.length);
+    return lines.join('\n');
+  }
+
+  // --- 3. Kalkulator kelayakan ----------------------------------------------
+
+  var CALC_DEFAULTS = { bunga: 10, tenor: 5, porsi: 70, investasi: null, tumbuh: null, kmkLain: 0, dscrMin: 1.25 };
+
+  // Angsuran bulanan anuitas.
+  function annuityPayment(principal, ratePct, years) {
+    var r = ratePct / 100 / 12, n = Math.round(years * 12);
+    if (!(principal > 0) || !(n > 0)) return 0;
+    return r ? principal * r / (1 - Math.pow(1 + r, -n)) : principal / n;
+  }
+
+  // Pokok pinjaman yang angsuran bulanannya = payment.
+  function annuityPrincipal(payment, ratePct, years) {
+    var r = ratePct / 100 / 12, n = Math.round(years * 12);
+    if (!(payment > 0) || !(n > 0)) return 0;
+    return r ? payment * (1 - Math.pow(1 + r, -n)) / r : payment * n;
+  }
+
+  // Perkiraan kasar dari laporan keuangan tahun terakhir. Bukan analisis kredit resmi.
+  function creditCalc(keuangan, input, settings) {
+    var inp = Object.assign({}, CALC_DEFAULTS);
+    Object.keys(input || {}).forEach(function (k) { if (input[k] != null && input[k] !== '' && isFinite(input[k])) inp[k] = +input[k]; });
+    var rows = financeView(keuangan).filter(function (r) { return r.tahun; });
+    var last = rows[rows.length - 1];
+    var out = { input: inp, missing: [], notes: [] };
+    if (!last) { out.missing.push('laporan keuangan'); return out; }
+    out.tahun = last.tahun;
+    var g = inp.tumbuh != null ? inp.tumbuh / 100 : (last.growth != null ? Math.max(0, Math.min(0.3, last.growth)) : 0.1);
+    out.tumbuh = g;
+    // Kebutuhan modal kerja dari siklus kas: hari piutang + hari persediaan − hari utang usaha.
+    var need = { penjualan: 'penjualan', hpp: 'HPP', piutang: 'piutang usaha', persediaan: 'persediaan', utangUsaha: 'utang usaha' };
+    Object.keys(need).forEach(function (k) { if (last[k] == null) out.missing.push(need[k]); });
+    if (last.penjualan > 0 && last.hpp > 0 && last.piutang != null && last.persediaan != null && last.utangUsaha != null) {
+      var dso = last.piutang / last.penjualan * 365;
+      var dio = last.persediaan / last.hpp * 365;
+      var dpo = last.utangUsaha / last.hpp * 365;
+      var ccc = dso + dio - dpo;
+      var kebutuhan = Math.max(0, ccc) / 365 * last.hpp * (1 + g);
+      out.kmk = { dso: dso, dio: dio, dpo: dpo, ccc: ccc, kebutuhan: kebutuhan,
+        plafond: Math.max(0, kebutuhan * inp.porsi / 100 - (inp.kmkLain || 0)) };
+      if (ccc <= 0) out.notes.push('Siklus kas nol atau negatif: pemasok membiayai usaha ini, kebutuhan KMK kecil.');
+    }
+    if (inp.investasi > 0) {
+      var ki = inp.investasi * inp.porsi / 100;
+      var ang = annuityPayment(ki, inp.bunga, inp.tenor);
+      out.ki = { plafond: ki, angsuranBulan: ang, angsuranTahun: ang * 12 };
+    }
+    if (last.laba == null) out.missing.push('laba bersih');
+    else {
+      var cfads = last.laba + (last.penyusutan || 0) + (last.bebanBunga || 0);
+      if (last.penyusutan == null) out.notes.push('Penyusutan belum diisi; arus kas dihitung dari laba bersih saja.');
+      var existing = last.angsuranTahun || 0;
+      var kmkBunga = out.kmk ? out.kmk.plafond * inp.bunga / 100 : 0;
+      var kiAngsuran = out.ki ? out.ki.angsuranTahun : 0;
+      var service = existing + kmkBunga + kiAngsuran;
+      var room = cfads / inp.dscrMin - existing - kmkBunga;
+      out.dscr = { cfads: cfads, existing: existing, kmkBunga: kmkBunga, kiAngsuran: kiAngsuran, service: service,
+        value: service > 0 ? cfads / service : null, min: inp.dscrMin,
+        kiMax: room > 0 ? annuityPrincipal(room / 12, inp.bunga, inp.tenor) : 0 };
+    }
+    var kiOk = out.ki ? (out.dscr ? Math.min(out.ki.plafond, out.dscr.kiMax) : out.ki.plafond) : 0;
+    out.total = (out.kmk ? out.kmk.plafond : 0) + kiOk;
+    out.kiDibatasi = !!(out.ki && out.dscr && out.dscr.kiMax < out.ki.plafond);
+    out.target = out.total > 0 ? inTarget(out.total, settings || DEFAULT_SETTINGS) : null;
+    return out;
+  }
+
+  // --- 7. Kelengkapan dokumen pengajuan --------------------------------------
+
+  var DOC_GROUPS = [
+    { title: 'Legalitas', items: [
+      ['akta', 'Akta pendirian & perubahan terakhir'], ['sk', 'SK Kemenkumham (PT) / SK terdaftar (CV)'],
+      ['nib', 'NIB & izin usaha (OSS)'], ['npwp', 'NPWP badan usaha'], ['ktp', 'KTP & NPWP pengurus / pemilik'],
+      ['persetujuan', 'Persetujuan RUPS / komisaris / sekutu untuk meminjam']] },
+    { title: 'Keuangan', items: [
+      ['lk', 'Laporan keuangan 2–3 tahun terakhir'], ['lkInterim', 'Laporan keuangan terbaru (interim)'],
+      ['rekkor', 'Rekening koran 6–12 bulan'], ['spt', 'SPT Tahunan PPh badan'], ['aging', 'Daftar piutang & utang usaha'],
+      ['kontrak', 'Kontrak / SPK / PO (bila untuk proyek)']] },
+    { title: 'Agunan', items: [
+      ['sertifikat', 'Sertifikat tanah (SHM/SHGB) atau BPKB'], ['pbb', 'PBB tahun terakhir'], ['pbg', 'IMB / PBG bangunan'],
+      ['fotoAgunan', 'Foto & denah lokasi agunan']] },
+    { title: 'Permohonan', items: [
+      ['permohonan', 'Surat permohonan kredit'], ['profil', 'Profil perusahaan, pelanggan & pemasok utama'],
+      ['slik', 'Persetujuan calon debitur untuk pemeriksaan SLIK']] }
+  ];
+  var DOC_IDS = [];
+  DOC_GROUPS.forEach(function (g) { g.items.forEach(function (it) { DOC_IDS.push(it[0]); }); });
+
+  function docProgress(dok) {
+    var done = DOC_IDS.filter(function (id) { return dok && dok[id]; }).length;
+    return { done: done, total: DOC_IDS.length };
+  }
+
+  // --- 8. Perusahaan yang disembunyikan dari hasil deteksi ------------------
+
+  var HIDE_REASONS = [
+    { id: 'tutup', label: 'Sudah tutup / pindah' }, { id: 'bukan', label: 'Bukan target (terlalu kecil / besar)' },
+    { id: 'bank', label: 'Sudah dibiayai bank lain / nasabah BNI' }, { id: 'lainnya', label: 'Alasan lain' }
+  ];
+  var HIDE_LABEL = {};
+  HIDE_REASONS.forEach(function (r) { HIDE_LABEL[r.id] = r.label; });
+
+  // --- 6. Tautan cek rekam jejak (pencarian biasa, tanpa mengambil data) ----
+
+  function trackRecordLinks(name, city) {
+    var q = '"' + normSpace(name) + '"';
+    var g = function (s) { return 'https://www.google.com/search?q=' + encodeURIComponent(s); };
+    return [
+      { id: 'tender', label: 'Tender pemerintah', url: g(q + ' pemenang tender (LPSE OR INAPROC)') },
+      { id: 'lpjk', label: 'Kontraktor (LPJK)', url: g(q + ' site:pu.go.id') },
+      { id: 'ekspor', label: 'Eksportir', url: g(q + ' site:inaexport.id') },
+      { id: 'berita', label: 'Berita', url: 'https://news.google.com/search?q=' + encodeURIComponent(q + (city ? ' ' + city : '')) + '&hl=id&gl=ID&ceid=ID%3Aid' }
+    ];
+  }
+
+  // ---------------------------------------------------------------------------
   // Google Places (tanpa jaringan): konversi hasil dan strategi pencarian per petak
   // ---------------------------------------------------------------------------
 
@@ -1979,6 +2498,16 @@
     SECTORS: SECTORS, SECTOR_BY_ID: SECTOR_BY_ID, classifySector: classifySector, sectorStats: sectorStats,
     findClusters: findClusters, CENTER_TYPES: CENTER_TYPES, centerType: centerType, bankBrand: bankBrand,
     economyQuery: economyQuery, parseEconomy: parseEconomy, bankCompetition: bankCompetition,
-    cityFromNominatim: cityFromNominatim, newsUrl: newsUrl, pdrbUrl: pdrbUrl
+    cityFromNominatim: cityFromNominatim, newsUrl: newsUrl, pdrbUrl: pdrbUrl,
+    FIN_EXTRA: FIN_EXTRA, addDaysISO: addDaysISO, isoFromTs: isoFromTs, weekOf: weekOf, periodRange: periodRange,
+    formatRange: formatRange, isOpenStatus: isOpenStatus,
+    priorityScore: priorityScore, PRIORITY_LABEL: PRIORITY_LABEL, MAX_ROUTE_STOPS: MAX_ROUTE_STOPS, planRoute: planRoute,
+    gmapsDirUrl: gmapsDirUrl, waNumber: waNumber, waUrl: waUrl, WA_TEMPLATE: WA_TEMPLATE, greetingFor: greetingFor,
+    sapaanFor: sapaanFor, fillTemplate: fillTemplate, agendaGroups: agendaGroups, gcalUrl: gcalUrl, icsCalendar: icsCalendar,
+    icsFold: icsFold, ACTIVITY_TYPES: ACTIVITY_TYPES, ACTIVITY_LABEL: ACTIVITY_LABEL, newActivity: newActivity,
+    statusAfterActivity: statusAfterActivity, sortActivities: sortActivities, lastActivity: lastActivity,
+    weeklyReport: weeklyReport, reportText: reportText, CALC_DEFAULTS: CALC_DEFAULTS, annuityPayment: annuityPayment,
+    annuityPrincipal: annuityPrincipal, creditCalc: creditCalc, DOC_GROUPS: DOC_GROUPS, DOC_IDS: DOC_IDS,
+    docProgress: docProgress, HIDE_REASONS: HIDE_REASONS, HIDE_LABEL: HIDE_LABEL, trackRecordLinks: trackRecordLinks
   };
 });

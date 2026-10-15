@@ -485,3 +485,188 @@ test('Peluang: pusat ekonomi dan bank pesaing dari OSM', () => {
   assert.equal(U.cityFromNominatim({ address: { county: 'Semarang', state: 'Jawa Tengah' } }), 'Semarang');
   assert.match(U.newsUrl('Kabupaten Semarang'), /news\.google\.com\/search\?q=/);
 });
+
+// ---------------------------------------------------------------------------
+// Kerja harian RM
+// ---------------------------------------------------------------------------
+
+test('prioritas prospek', () => {
+  const S = U.mergeSettings(null);
+  const hot = U.priorityScore({ zone: 'red', entity: 'PT', name: 'PT Distributor Semen Jaya', phone: '0812-3456-7890' }, null, S, '2026-10-15');
+  assert.equal(hot.level, 'tinggi');
+  assert.ok(hot.score >= 85, 'skor ' + hot.score);
+  assert.deepEqual(hot.reasons, ['zona merah', 'perdagangan besar & distribusi', 'ada nomor HP']);
+  const cold = U.priorityScore({ zone: 'out', entity: 'CV', name: 'CV Abadi' }, null, S, '2026-10-15');
+  assert.equal(cold.level, 'rendah');
+  assert.ok(cold.score < hot.score);
+  assert.ok(U.priorityScore({ zone: 'red', entity: 'Tbk', name: 'PT Besar Tbk' }, null, S).reasons.includes('biasanya di atas target plafond'));
+  const late = U.priorityScore({ zone: 'green', entity: 'PT', name: 'PT A' }, { status: 'dihubungi', followUp: '2026-10-10', plafond: 5e9 }, S, '2026-10-15');
+  assert.equal(late.reasons[0], 'follow-up terlambat');
+  assert.ok(late.reasons.includes('plafond sesuai target'));
+  assert.deepEqual(U.priorityScore({ zone: 'red', entity: 'PT', name: 'PT A' }, { status: 'ditolak' }, S), { score: 0, level: 'selesai', reasons: ['ditolak / tidak minat'] });
+});
+
+test('rencana rute kunjungan', () => {
+  const start = { lat: 0, lon: 0 };
+  const at = (lon, id) => ({ id, lat: 0, lon });
+  const r = U.planRoute(start, [at(0.03, 'c'), at(0.01, 'a'), at(0.02, 'b')]);
+  assert.deepEqual(r.stops.map((s) => s.id), ['a', 'b', 'c']);
+  assert.ok(Math.abs(r.km - 3.336) < 0.01, 'km ' + r.km);
+  assert.equal(r.legs.length, 3);
+  const back = U.planRoute(start, [at(0.03, 'c'), at(0.01, 'a')], { returnToStart: true });
+  assert.equal(back.legs.length, 3);
+  assert.ok(Math.abs(back.km - 6.672) < 0.01);
+  // 10 titik di lingkaran: hasil 2-opt mengikuti keliling, bukan zig-zag
+  const ring = [];
+  for (let i = 0; i < 10; i++) ring.push({ id: i, lat: Math.sin(i * 0.628) * 0.05, lon: Math.cos(i * 0.628) * 0.05 });
+  const shuffled = [3, 8, 1, 6, 0, 9, 4, 2, 7, 5].map((i) => ring[i]);
+  const rr = U.planRoute(null, shuffled);
+  assert.equal(rr.stops.length, 10);
+  assert.ok(rr.km < 32, 'keliling ±31 km, dapat ' + rr.km.toFixed(1));
+  assert.deepEqual(U.planRoute(start, []).stops, []);
+
+  const url = U.gmapsDirUrl(start, [at(0.01), at(0.02), at(0.03)]);
+  assert.equal(url, 'https://www.google.com/maps/dir/?api=1&origin=0.000000,0.000000&destination=0.000000,0.030000&waypoints=0.000000,0.010000%7C0.000000,0.020000&travelmode=driving');
+  assert.match(U.gmapsDirUrl(start, [at(0.01), at(0.02)], { returnToStart: true }), /destination=0\.000000,0\.000000&waypoints=0\.000000,0\.010000%7C0\.000000,0\.020000/);
+  assert.doesNotMatch(U.gmapsDirUrl(null, [at(0.01)]), /origin=/);
+});
+
+test('WhatsApp: nomor ponsel, sapaan, dan template', () => {
+  assert.equal(U.waNumber('0812-3456-7890'), '6281234567890');
+  assert.equal(U.waNumber('+62 812 3456 789'), '628123456789');
+  assert.equal(U.waNumber('Pak Budi (Direktur) 0811 222 333'), '62811222333');
+  assert.equal(U.waNumber('(024) 6921234'), '', 'telepon kantor bukan WhatsApp');
+  assert.equal(U.waNumber('024-6921234 / 0857.1234.5678'), '6285712345678');
+  assert.equal(U.waNumber(''), '');
+  assert.equal(U.sapaanFor('Pak Budi Santoso, Direktur, 0812'), 'Bapak Budi Santoso');
+  assert.equal(U.sapaanFor('Ibu Sari (Keuangan)'), 'Ibu Sari');
+  assert.equal(U.sapaanFor('Hendra Wijaya'), 'Bapak/Ibu Hendra Wijaya');
+  assert.equal(U.sapaanFor(''), 'Bapak/Ibu');
+  assert.equal(U.greetingFor(new Date(2026, 9, 15, 9)), 'pagi');
+  assert.equal(U.greetingFor(new Date(2026, 9, 15, 16)), 'sore');
+  const msg = U.fillTemplate(U.WA_TEMPLATE, { waktu: 'pagi', sapaan: 'Bapak Budi', nama_rm: 'Aziz', jabatan: 'Relationship Manager', kantor: 'KCP Ungaran', perusahaan: 'PT Maju' });
+  assert.match(msg, /^Selamat pagi, Bapak Budi\. Perkenalkan, saya Aziz, Relationship Manager BNI KCP Ungaran\./);
+  assert.match(msg, /untuk PT Maju\./);
+  assert.equal(U.fillTemplate('Halo {nama} {x}', { nama: 'A' }), 'Halo A {x}');
+  assert.equal(U.waUrl('6281234567890', 'Halo & salam'), 'https://wa.me/6281234567890?text=Halo%20%26%20salam');
+});
+
+test('agenda follow-up dan kalender', () => {
+  const ps = [
+    { name: 'A', status: 'dihubungi', followUp: '2026-10-10' },
+    { name: 'B', status: 'baru', followUp: '2026-10-15' },
+    { name: 'C', status: 'kunjungan', followUp: '2026-10-20' },
+    { name: 'D', status: 'pengajuan', followUp: '2026-11-30' },
+    { name: 'E', status: 'baru', followUp: '' },
+    { name: 'F', status: 'ditolak', followUp: '2026-10-01' },
+    { name: 'G', status: 'disetujui', followUp: '2026-10-15' }
+  ];
+  const g = U.agendaGroups(ps, '2026-10-15');
+  assert.deepEqual(Object.fromEntries(Object.entries(g).map(([k, v]) => [k, v.map((p) => p.name)])),
+    { late: ['A'], today: ['B'], week: ['C'], later: ['D'], none: ['E'] });
+  assert.equal(U.gcalUrl({ title: 'Follow-up PT A', date: '2026-10-31', details: 'Status: baru' }),
+    'https://calendar.google.com/calendar/render?action=TEMPLATE&text=Follow-up%20PT%20A&dates=20261031/20261101&details=Status%3A%20baru');
+  const ics = U.icsCalendar([{ uid: 'fu-1@pp', date: '2026-12-31', title: 'Follow-up PT A, Tbk; uji', details: 'Baris 1\nBaris 2' }], new Date(Date.UTC(2026, 9, 15, 8, 30)));
+  assert.match(ics, /^BEGIN:VCALENDAR\r\nVERSION:2\.0\r\n/);
+  assert.match(ics, /DTSTAMP:20261015T083000Z\r\n/);
+  assert.match(ics, /DTSTART;VALUE=DATE:20261231\r\nDTEND;VALUE=DATE:20270101\r\n/);
+  assert.match(ics, /SUMMARY:Follow-up PT A\\, Tbk\; uji\r\n/);
+  assert.match(ics, /DESCRIPTION:Baris 1\\nBaris 2\r\n/);
+  assert.match(ics, /END:VCALENDAR\r\n$/);
+  const long = U.icsFold('DESCRIPTION:' + 'é'.repeat(80));
+  long.split('\r\n').forEach((l) => assert.ok(Buffer.byteLength(l) <= 75, 'baris ' + Buffer.byteLength(l) + ' byte'));
+  assert.equal(long.replace(/\r\n /g, ''), 'DESCRIPTION:' + 'é'.repeat(80));
+});
+
+test('periode laporan', () => {
+  const w = U.periodRange('minggu', '2026-10-15');
+  assert.deepEqual([w.from, w.to, w.label], ['2026-10-12', '2026-10-18', '12–18 Okt 2026']);
+  const l = U.periodRange('minggu-lalu', '2026-10-15');
+  assert.deepEqual([l.from, l.to], ['2026-10-05', '2026-10-11']);
+  const m = U.periodRange('bulan', '2026-02-10');
+  assert.deepEqual([m.from, m.to], ['2026-02-01', '2026-02-28']);
+  assert.equal(U.periodRange('minggu', '2026-12-30').label, '28 Des 2026 – 3 Jan 2027');
+  assert.equal(U.addDaysISO('2026-12-31', 1), '2027-01-01');
+});
+
+test('aktivitas, status otomatis, dan laporan mingguan', () => {
+  assert.equal(U.statusAfterActivity('baru', 'telepon'), 'dihubungi');
+  assert.equal(U.statusAfterActivity('dihubungi', 'kunjungan'), 'kunjungan');
+  assert.equal(U.statusAfterActivity('pengajuan', 'kunjungan'), 'pengajuan', 'tidak mundur');
+  assert.equal(U.statusAfterActivity('ditolak', 'telepon'), 'ditolak');
+  const a = U.newActivity({ jenis: 'xx', hasil: '  minta  proposal ' }, '2026-10-15');
+  assert.equal(a.jenis, 'lainnya');
+  assert.equal(a.tanggal, '2026-10-15');
+  assert.equal(a.hasil, 'minta proposal');
+  const ts = (iso) => new Date(iso + 'T10:00:00').getTime();
+  const ps = [
+    { id: 'p1', name: 'PT A', status: 'pengajuan', plafond: 5e9, createdAt: ts('2026-10-13'), followUp: '2026-10-20',
+      statusLog: [{ s: 'dihubungi', t: ts('2026-10-13') }, { s: 'pengajuan', t: ts('2026-10-16') }],
+      aktivitas: [{ tanggal: '2026-10-13', jenis: 'telepon', t: 1 }, { tanggal: '2026-10-16', jenis: 'kunjungan', t: 2 }] },
+    { id: 'p2', name: 'CV B', status: 'disetujui', plafond: 2e9, createdAt: ts('2026-09-01'),
+      statusLog: [{ s: 'disetujui', t: ts('2026-10-17') }], aktivitas: [{ tanggal: '2026-10-01', jenis: 'wa', t: 3 }] },
+    { id: 'p3', name: 'UD C', status: 'baru', plafond: 30e9, createdAt: ts('2026-10-14'), followUp: '2026-10-22', aktivitas: [] }
+  ];
+  const rep = U.weeklyReport(ps, U.periodRange('minggu', '2026-10-15'), U.mergeSettings(null));
+  assert.equal(rep.activities.length, 2);
+  assert.deepEqual(rep.byType, { telepon: 1, kunjungan: 1 });
+  assert.equal(rep.contacted, 1);
+  assert.deepEqual(rep.created.map((p) => p.id), ['p1', 'p3']);
+  assert.equal(rep.moved.pengajuan.count, 1);
+  assert.equal(rep.moved.disetujui.plafond, 2e9);
+  assert.equal(rep.openCount, 2);
+  assert.equal(rep.inTarget, 1, '30 M di atas target');
+  assert.deepEqual(rep.upcoming.map((p) => p.id), ['p1', 'p3']);
+  const txt = U.reportText(rep, { nama: 'Aziz', kantor: 'KCP Ungaran' });
+  assert.match(txt, /^Laporan aktivitas RM – Aziz \(BNI KCP Ungaran\)\nPeriode: 12–18 Okt 2026/);
+  assert.match(txt, /Aktivitas: 2 \(telepon 1, kunjungan 1\) ke 1 prospek/);
+  assert.match(txt, /Masuk pengajuan: 1 \(Rp 5 M\)/);
+  assert.match(txt, /Disetujui\/cair: 1 \(Rp 2 M\)/);
+});
+
+test('kalkulator kelayakan kredit', () => {
+  const pay = U.annuityPayment(2.1e9, 10, 5);
+  assert.ok(Math.abs(pay - 44618433) < 1000, 'angsuran ' + pay);
+  assert.ok(Math.abs(U.annuityPrincipal(pay, 10, 5) - 2.1e9) < 1);
+  assert.equal(U.annuityPayment(1.2e9, 0, 1), 1e8);
+  const keu = [{ tahun: 2025, penjualan: 12e9, hpp: 9e9, piutang: 1.5e9, persediaan: 1.2e9, utangUsaha: 0.6e9, laba: 0.9e9,
+    penyusutan: 0.3e9, bebanBunga: 0.1e9, angsuranTahun: 0.2e9, aset: 10e9, liabilitas: 4e9 }];
+  const c = U.creditCalc(keu, { investasi: 3e9 }, U.mergeSettings(null));
+  assert.deepEqual(c.missing, []);
+  assert.equal(c.tahun, 2025);
+  assert.ok(Math.abs(c.kmk.ccc - 69.96) < 0.05, 'siklus ' + c.kmk.ccc);
+  assert.ok(Math.abs(c.kmk.plafond - 1.3283e9) < 1e6, 'KMK ' + c.kmk.plafond);
+  assert.equal(c.ki.plafond, 2.1e9);
+  assert.ok(Math.abs(c.dscr.value - 1.497) < 0.005, 'DSCR ' + c.dscr.value);
+  assert.ok(Math.abs(c.dscr.kiMax - 2.7737e9) < 5e6, 'KI maks ' + c.dscr.kiMax);
+  assert.ok(Math.abs(c.total - 3.428e9) < 2e6, 'total ' + c.total);
+  assert.equal(c.target, true);
+  assert.equal(c.kiDibatasi, false);
+  // Investasi besar dibatasi kemampuan bayar
+  const big = U.creditCalc(keu, { investasi: 10e9 });
+  assert.equal(big.kiDibatasi, true);
+  assert.ok(Math.abs(big.total - (big.kmk.plafond + big.dscr.kiMax)) < 1);
+  // Data belum lengkap
+  const thin = U.creditCalc([{ tahun: 2025, penjualan: 5e9, laba: 0.4e9 }], {});
+  assert.deepEqual(thin.missing, ['HPP', 'piutang usaha', 'persediaan', 'utang usaha']);
+  assert.equal(thin.kmk, undefined);
+  assert.ok(thin.notes.some((n) => /Penyusutan/.test(n)));
+  assert.deepEqual(U.creditCalc([], {}).missing, ['laporan keuangan']);
+});
+
+test('dokumen, tautan rekam jejak, dan impor keuangan tambahan', () => {
+  assert.equal(U.DOC_IDS.length, 19);
+  assert.deepEqual(U.docProgress({ akta: '2026-10-01', nib: '2026-10-02', bukan: true }), { done: 2, total: 19 });
+  assert.deepEqual(U.docProgress(null), { done: 0, total: 19 });
+  const links = U.trackRecordLinks('PT Maju Jaya', 'Semarang');
+  assert.deepEqual(links.map((l) => l.id), ['tender', 'lpjk', 'ekspor', 'berita']);
+  assert.match(links[1].url, /%22PT%20Maju%20Jaya%22%20site%3Apu\.go\.id/);
+  const rows = [
+    ['Nama Perusahaan', 'Tahun', 'Penjualan', 'HPP', 'Piutang Usaha', 'Persediaan', 'Hutang Usaha (Rp)', 'Total Liabilitas', 'Penyusutan', 'Beban Bunga', 'Angsuran Pinjaman'],
+    ['PT Uji Kalkulator', 2025, 12e9, 9e9, 1.5e9, 1.2e9, 0.6e9, 4e9, 0.3e9, 0.1e9, 0.2e9]
+  ];
+  const res = U.convertProspectSheets(rows);
+  const k = res.records[0].keuangan[0];
+  assert.deepEqual([k.hpp, k.piutang, k.persediaan, k.utangUsaha, k.liabilitas, k.penyusutan, k.bebanBunga, k.angsuranTahun],
+    [9e9, 1.5e9, 1.2e9, 0.6e9, 4e9, 0.3e9, 0.1e9, 0.2e9]);
+});

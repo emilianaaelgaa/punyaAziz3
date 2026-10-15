@@ -166,10 +166,13 @@
     var XLSX = await ensureXLSX();
     var header = ['ID', 'Nama', 'Badan usaha', 'Status', 'Estimasi plafond (Rp)', 'Sesuai target', 'Produk', 'Bidang usaha', 'Perkiraan sektor',
       'Tahun berdiri', 'PIC', 'Telepon', 'Email', 'Situs web', 'Alamat', 'Kota', 'Latitude', 'Longitude',
-      'Kantor BNI terdekat', 'Jarak (km)', 'Zona', 'Nasabah BNI', 'Follow-up', 'Catatan', 'Sumber data', 'Asal data', 'Tautan peta', 'Terakhir diubah'];
+      'Kantor BNI terdekat', 'Jarak (km)', 'Zona', 'Nasabah BNI', 'Follow-up', 'Aktivitas terakhir', 'Langkah berikutnya', 'Jumlah aktivitas',
+      'Kelengkapan dokumen', 'Catatan', 'Sumber data', 'Asal data', 'Tautan peta', 'Terakhir diubah'];
     var rows = list.map(function (x) {
       var p = x.profile;
       var target = U.inTarget(p.plafond, settings);
+      var last = U.lastActivity(p);
+      var doc = U.docProgress(p.dokumen);
       return {
         'ID': p.id,
         'Nama': p.name,
@@ -194,6 +197,10 @@
         'Zona': zoneLabel(x.zone, settings),
         'Nasabah BNI': p.isNasabah ? 'Ya' : 'Tidak',
         'Follow-up': p.followUp || '',
+        'Aktivitas terakhir': last ? last.tanggal + ' ' + (U.ACTIVITY_LABEL[last.jenis] || '') + (last.hasil ? ': ' + last.hasil : '') : '',
+        'Langkah berikutnya': last && last.langkah ? last.langkah : '',
+        'Jumlah aktivitas': (p.aktivitas || []).length,
+        'Kelengkapan dokumen': doc.done ? doc.done + '/' + doc.total : '',
         'Catatan': p.catatan || '',
         'Sumber data': p.sumberData || '',
         'Asal data': p.source === 'osm' ? 'OpenStreetMap' : p.source === 'google' ? 'Google Maps' : (p.source === 'import' ? 'Impor Excel' : 'Input manual'),
@@ -203,8 +210,12 @@
     });
     var people = [];
     var fin = [];
+    var acts = [];
     list.forEach(function (x) {
       var p = x.profile;
+      U.sortActivities(p.aktivitas).forEach(function (a) {
+        acts.push({ 'ID': p.id, 'Perusahaan': p.name, 'Tanggal': a.tanggal, 'Jenis': U.ACTIVITY_LABEL[a.jenis] || '', 'Hasil': a.hasil || '', 'Langkah berikutnya': a.langkah || '' });
+      });
       (p.pengurus || []).forEach(function (o) {
         people.push({ 'ID': p.id, 'Perusahaan': p.name, 'Nama': o.nama, 'Jabatan': o.jabatan, 'Saham (%)': o.saham == null ? '' : o.saham });
       });
@@ -216,6 +227,13 @@
           'Total aset': f.aset == null ? '' : f.aset,
           'Total liabilitas': f.liabilitas == null ? '' : f.liabilitas,
           'Ekuitas': f.ekuitas == null ? '' : f.ekuitas,
+          'HPP': f.hpp == null ? '' : f.hpp,
+          'Piutang usaha': f.piutang == null ? '' : f.piutang,
+          'Persediaan': f.persediaan == null ? '' : f.persediaan,
+          'Utang usaha': f.utangUsaha == null ? '' : f.utangUsaha,
+          'Penyusutan': f.penyusutan == null ? '' : f.penyusutan,
+          'Beban bunga': f.bebanBunga == null ? '' : f.bebanBunga,
+          'Angsuran pinjaman per tahun': f.angsuranTahun == null ? '' : f.angsuranTahun,
           'Margin laba bersih': r4(f.npm),
           'ROA': r4(f.roa),
           'DER (x)': r2(f.der),
@@ -225,13 +243,50 @@
     });
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, sheet(XLSX, header, rows,
-      [22, 36, 12, 20, 18, 12, 18, 24, 28, 12, 20, 16, 22, 24, 40, 16, 11, 11, 28, 10, 10, 11, 12, 40, 20, 14, 40, 17]), 'Prospek');
+      [22, 36, 12, 20, 18, 12, 18, 24, 28, 12, 20, 16, 22, 24, 40, 16, 11, 11, 28, 10, 10, 11, 12, 36, 28, 10, 12, 40, 20, 14, 40, 17]), 'Prospek');
     XLSX.utils.book_append_sheet(wb, sheet(XLSX, ['ID', 'Perusahaan', 'Nama', 'Jabatan', 'Saham (%)'], people,
       [22, 36, 28, 18, 10]), 'Pengurus');
     XLSX.utils.book_append_sheet(wb, sheet(XLSX, ['ID', 'Perusahaan', 'Tahun', 'Penjualan', 'Laba bersih', 'Total aset',
-      'Total liabilitas', 'Ekuitas', 'Margin laba bersih', 'ROA', 'DER (x)', 'Pertumbuhan penjualan'], fin,
-      [22, 36, 8, 18, 18, 18, 18, 18, 12, 10, 10, 14]), 'Keuangan');
+      'Total liabilitas', 'Ekuitas', 'HPP', 'Piutang usaha', 'Persediaan', 'Utang usaha', 'Penyusutan', 'Beban bunga',
+      'Angsuran pinjaman per tahun', 'Margin laba bersih', 'ROA', 'DER (x)', 'Pertumbuhan penjualan'], fin,
+      [22, 36, 8, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 12, 10, 10, 14]), 'Keuangan');
+    XLSX.utils.book_append_sheet(wb, sheet(XLSX, ['ID', 'Perusahaan', 'Tanggal', 'Jenis', 'Hasil', 'Langkah berikutnya'], acts,
+      [22, 36, 11, 16, 44, 30]), 'Aktivitas');
     writeBook(XLSX, wb, 'prospek-saya-' + U.isoDate(new Date()) + '.xlsx');
+  }
+
+  // Laporan aktivitas RM: ringkasan, aktivitas, dan pipeline per status.
+  async function exportReport(rep, meta, settings) {
+    var XLSX = await ensureXLSX();
+    var wb = XLSX.utils.book_new();
+    var types = U.ACTIVITY_TYPES.map(function (t) { return [t.label, rep.byType[t.id] || 0]; });
+    var summary = [
+      ['Laporan aktivitas RM'],
+      ['Nama', meta.nama || ''], ['Kantor', meta.kantor ? 'BNI ' + meta.kantor : ''], ['Periode', rep.range.label],
+      [],
+      ['Aktivitas', rep.activities.length]].concat(types.map(function (t) { return ['  ' + t[0], t[1]]; })).concat([
+      ['Prospek dihubungi', rep.contacted],
+      ['Prospek baru', rep.created.length],
+      ['Masuk pengajuan', rep.moved.pengajuan.count], ['  Plafond pengajuan (Rp)', rep.moved.pengajuan.plafond],
+      ['Disetujui / cair', rep.moved.disetujui.count], ['  Plafond disetujui (Rp)', rep.moved.disetujui.plafond],
+      ['Pipeline aktif (prospek)', rep.openCount], ['Pipeline aktif (Rp)', rep.openPlafond],
+      ['Sesuai target plafond', rep.inTarget],
+      ['Follow-up 7 hari berikutnya', rep.upcoming.length]
+    ]);
+    var ws = XLSX.utils.aoa_to_sheet(summary);
+    ws['!cols'] = [{ wch: 30 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Ringkasan');
+    var acts = rep.activities.map(function (x) {
+      return { 'Tanggal': x.a.tanggal, 'Perusahaan': x.p.name, 'Jenis': U.ACTIVITY_LABEL[x.a.jenis] || '', 'Hasil': x.a.hasil || '',
+        'Langkah berikutnya': x.a.langkah || '', 'Status sekarang': U.STATUS_LABEL[x.p.status] || '',
+        'Estimasi plafond (Rp)': x.p.plafond != null ? x.p.plafond : '' };
+    });
+    XLSX.utils.book_append_sheet(wb, sheet(XLSX, ['Tanggal', 'Perusahaan', 'Jenis', 'Hasil', 'Langkah berikutnya', 'Status sekarang', 'Estimasi plafond (Rp)'],
+      acts, [11, 36, 16, 40, 30, 20, 18]), 'Aktivitas');
+    XLSX.utils.book_append_sheet(wb, sheet(XLSX, ['Status', 'Jumlah prospek', 'Total plafond (Rp)'], rep.pipeline.map(function (r) {
+      return { 'Status': r.label, 'Jumlah prospek': r.count, 'Total plafond (Rp)': r.plafond };
+    }), [24, 14, 20]), 'Pipeline');
+    writeBook(XLSX, wb, 'laporan-rm-' + rep.range.from + '-' + rep.range.to + '.xlsx');
   }
 
   async function downloadProspectTemplate() {
@@ -260,10 +315,12 @@
     pengurus['!cols'] = [{ wch: 32 }, { wch: 26 }, { wch: 18 }, { wch: 10 }];
     XLSX.utils.book_append_sheet(wb, pengurus, 'Pengurus');
     var keu = XLSX.utils.aoa_to_sheet([
-      ['Perusahaan', 'Tahun', 'Penjualan', 'Laba Bersih', 'Total Aset', 'Total Liabilitas', 'Ekuitas'],
-      ['PT Contoh Sejahtera (contoh)', 2024, 10000000000, 700000000, 7000000000, 2800000000, 4200000000]
+      ['Perusahaan', 'Tahun', 'Penjualan', 'Laba Bersih', 'Total Aset', 'Total Liabilitas', 'Ekuitas', 'HPP', 'Piutang Usaha',
+        'Persediaan', 'Utang Usaha', 'Penyusutan', 'Beban Bunga', 'Angsuran Pinjaman'],
+      ['PT Contoh Sejahtera (contoh)', 2024, 10000000000, 700000000, 7000000000, 2800000000, 4200000000, 7500000000, 1200000000,
+        1000000000, 500000000, 250000000, 80000000, 150000000]
     ]);
-    keu['!cols'] = [{ wch: 32 }, { wch: 8 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 16 }];
+    keu['!cols'] = [{ wch: 32 }, { wch: 8 }].concat(Array(12).fill({ wch: 16 }));
     XLSX.utils.book_append_sheet(wb, keu, 'Keuangan');
     var help = XLSX.utils.aoa_to_sheet([
       ['Petunjuk impor prospek'],
@@ -273,6 +330,7 @@
       ['4. Status: Baru, Dihubungi, Kunjungan, Pengajuan, Disetujui, Ditolak.'],
       ['5. Beberapa orang dalam satu sel dipisahkan titik koma, persen saham dalam kurung: "Budi (60%); Ani (40%)".'],
       ['6. Pengurus dan laporan keuangan beberapa tahun bisa diisi di lembar "Pengurus" dan "Keuangan" (kolom Perusahaan harus sama dengan nama di lembar Prospek).'],
+      ['   HPP, piutang usaha, persediaan, utang usaha, penyusutan, beban bunga, dan angsuran pinjaman per tahun dipakai kalkulator kelayakan.'],
       ['7. Baris contoh yang namanya berisi "(contoh)" tidak ikut diimpor.'],
       ['8. Jangan memasukkan data SLIK OJK atau data nasabah yang bersifat rahasia.']
     ]);
@@ -302,7 +360,7 @@
 
   root.PP.excel = {
     ensureXLSX: ensureXLSX, parseProspectFile: parseProspectFile, parseBranchFile: parseBranchFile,
-    exportResults: exportResults, exportProspects: exportProspects,
+    exportResults: exportResults, exportProspects: exportProspects, exportReport: exportReport,
     downloadProspectTemplate: downloadProspectTemplate, downloadBranchTemplate: downloadBranchTemplate,
     downloadBlob: downloadBlob
   };

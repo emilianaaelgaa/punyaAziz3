@@ -266,6 +266,7 @@ async function mockNetwork(context) {
     const hit = /Gatot Subroto/i.test(q) ? [{ lat: '-7.1300', lon: '110.4100', place_rank: 26, display_name: 'Jl. Gatot Subroto, Ungaran' }] : [];
     route.fulfill({ status: 200, contentType: 'application/json', headers: { 'Access-Control-Allow-Origin': '*' }, body: JSON.stringify(hit) });
   });
+  await context.route(/^https:\/\/wa\.me\//, (route) => route.fulfill({ status: 200, contentType: 'text/html', body: '<p>WhatsApp tiruan</p>' }));
   // Tautan keluar (Google, LinkedIn, AHU, IDX). Hanya host eksternal; file lokal seperti js/google.js tidak ikut.
   await context.route(/^https:\/\/([a-z0-9-]+\.)*(google\.com|linkedin\.com|ahu\.go\.id|idx\.co\.id)\//, (route) => route.fulfill({ status: 204, body: '' }));
 }
@@ -481,14 +482,14 @@ async function run() {
   });
 
   let exportedProspects;
-  await step('ekspor Prospek saya (3 lembar)', async () => {
+  await step('ekspor Prospek saya (4 lembar)', async () => {
     await page.click('#tabbtn-prospek');
     const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#btnExportProspects')]);
     exportedProspects = path.join(SHOT_DIR, dl.suggestedFilename());
     await dl.saveAs(exportedProspects);
     const XLSX = require(path.join(ROOT, 'vendor/xlsx/xlsx.core.min.js'));
     const wb = XLSX.read(fs.readFileSync(exportedProspects));
-    assert.deepEqual(wb.SheetNames, ['Prospek', 'Pengurus', 'Keuangan']);
+    assert.deepEqual(wb.SheetNames, ['Prospek', 'Pengurus', 'Keuangan', 'Aktivitas']);
     assert.equal(XLSX.utils.sheet_to_json(wb.Sheets.Pengurus).length, 2);
     const fin = XLSX.utils.sheet_to_json(wb.Sheets.Keuangan);
     assert.equal(fin[0].Tahun, 2024);
@@ -817,6 +818,207 @@ async function run() {
     await page.screenshot({ path: path.join(SHOT_DIR, '13-kantor-tambahan.png') });
   });
 
+
+  // ---------------------------------------------------------------------------
+  // Kerja harian RM
+  // ---------------------------------------------------------------------------
+  const pickUngaran = async () => {
+    await page.click('#tabbtn-cabang');
+    await page.fill('#branchSearch', 'ungaran');
+    await page.click('#branchList [data-branch="osm:n1001"]');
+    await page.waitForFunction(() => window.__PP_STATE__.activeBranch && window.__PP_STATE__.activeBranch.id === 'osm:n1001' && !window.__PP_STATE__.resultsLoading && window.__PP_STATE__.results.length, null, { timeout: 15000 });
+  };
+  const openResult = async (name) => {
+    await page.click('#tabbtn-deteksi');
+    await page.fill('#resultSearch', name);
+    await page.click('#resultList .item:has-text("' + name + '")');
+    await page.waitForSelector('#dossier:not([hidden])');
+    await page.fill('#resultSearch', '');
+  };
+
+  await step('prioritas: urutan dan tanda di hasil deteksi', async () => {
+    await pickUngaran();
+    await page.selectOption('#resultSort', 'priority');
+    const scores = await page.evaluate(() => {
+      const ids = Array.from(document.querySelectorAll('#resultList .item')).map((el) => el.getAttribute('data-id'));
+      const s = window.__PP_STATE__;
+      const today = PP.util.isoDate(new Date());
+      return ids.map((id) => { const c = s.results.find((x) => x.id === id); return PP.util.priorityScore(c, c.profile || null, s.settings, today).score; });
+    });
+    assert.ok(scores.length > 10);
+    for (let i = 1; i < scores.length; i++) assert.ok(scores[i - 1] >= scores[i], 'urut menurun di posisi ' + i);
+    assert.match(await page.locator('#resultList .item').first().innerText(), /Prioritas tinggi/);
+    await page.selectOption('#resultSort', 'dist');
+  });
+
+  await step('WhatsApp: minta profil RM dulu, lalu buka dengan pesan perkenalan', async () => {
+    await openResult('CV Maju Bersama');
+    assert.match(await page.locator('#waRow').innerText(), /WhatsApp \+6281200001111/);
+    await page.click('[data-action="wa-open"]');
+    await page.waitForSelector('#dlgSettings[open]');
+    assert.equal(await page.evaluate(() => document.activeElement.id), 'setRmName');
+    await page.fill('#setRmName', 'Aziz');
+    await page.fill('#setRmOffice', 'KCP Ungaran');
+    await page.click('#btnSaveSettings');
+    await page.waitForFunction(() => window.__PP_STATE__.settings.rmName === 'Aziz');
+    const [wa] = await Promise.all([context.waitForEvent('page'), page.click('[data-action="wa-open"]')]);
+    await wa.waitForLoadState('domcontentloaded');
+    const u = new URL(wa.url());
+    assert.equal(u.host + u.pathname, 'wa.me/6281200001111');
+    const text = u.searchParams.get('text');
+    assert.match(text, /^Selamat (pagi|siang|sore|malam), Bapak\/Ibu\. Perkenalkan, saya Aziz, Relationship Manager BNI KCP Ungaran\./);
+    assert.match(text, /untuk CV Maju Bersama\./);
+    await wa.close();
+    assert.equal(await page.inputValue('[data-a-f="jenis"]'), 'wa');
+    assert.equal(await page.inputValue('[data-a-f="hasil"]'), 'Kirim pesan perkenalan');
+  });
+
+  await step('aktivitas: catat, status maju, follow-up masuk agenda dan kalender', async () => {
+    const today = await page.evaluate(() => PP.util.isoDate(new Date()));
+    await page.fill('[data-a-f="langkah"]', 'kirim proposal KMK');
+    await page.fill('[data-a-f="followUp"]', today);
+    await page.click('[data-action="add-activity"]');
+    await page.waitForFunction(() => Object.values(window.__PP_STATE__.profiles).some((p) => p.name === 'CV Maju Bersama' && p.aktivitas.length === 1));
+    const pr = await page.evaluate(() => Object.values(window.__PP_STATE__.profiles).find((p) => p.name === 'CV Maju Bersama'));
+    assert.equal(pr.status, 'dihubungi', 'status maju otomatis');
+    assert.equal(pr.followUp, today);
+    assert.equal(pr.statusLog[pr.statusLog.length - 1].s, 'dihubungi');
+    assert.match(await page.locator('#actSec .act-list').innerText(), /WhatsApp[\s\S]*Kirim pesan perkenalan[\s\S]*kirim proposal KMK/);
+    assert.equal(await page.locator('[data-f="status"]').inputValue(), 'dihubungi');
+    await page.waitForFunction(() => document.getElementById('agendaAlert').textContent === '1');
+    await page.click('#btnDossierClose');
+    await page.click('#tabbtn-prospek');
+    await page.click('#pviewSeg [data-pview="agenda"]');
+    const ag = await page.locator('#pview-agenda').innerText();
+    assert.match(ag, /HARI INI[\s\S]*CV Maju Bersama[\s\S]*Langkah: kirim proposal KMK/i);
+    const gcal = await page.locator('#pview-agenda a:has-text("Google Calendar")').first().getAttribute('href');
+    assert.match(gcal, new RegExp('dates=' + today.replace(/-/g, '') + '/'));
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-action="agenda-ics"]')]);
+    const ics = fs.readFileSync(await dl.path(), 'utf8');
+    assert.match(ics, /BEGIN:VEVENT[\s\S]*SUMMARY:Follow-up CV Maju Bersama/);
+    await page.screenshot({ path: path.join(SHOT_DIR, '17-agenda.png') });
+  });
+
+  await step('rute: klaster dari Peluang, isi otomatis, buka Google Maps, selesai', async () => {
+    await page.click('#tabbtn-peluang');
+    await page.waitForSelector('#peluangBody [data-plan-cluster="0"]');
+    await page.click('#peluangBody [data-plan-cluster="0"]');
+    const fromCluster = await page.evaluate(() => window.__PP_STATE__.plan.length);
+    assert.equal(fromCluster, 6, 'enam usaha klaster Jl. Diponegoro');
+    await page.click('#tabbtn-prospek');
+    await page.click('#pviewSeg [data-pview="rute"]');
+    assert.equal(await page.locator('#planBadge').innerText(), '6');
+    await page.click('#pview-rute [data-action="plan-auto"]');
+    await page.waitForFunction(() => window.__PP_STATE__.plan.length === 10);
+    const href = await page.getAttribute('#planOpen', 'href');
+    assert.match(href, /^https:\/\/www\.google\.com\/maps\/dir\/\?api=1&origin=-7\.138600,110\.405300&destination=-?[\d.]+,[\d.]+&waypoints=([\d.,-]+%7C){8}[\d.,-]+&travelmode=driving$/);
+    assert.equal(await page.locator('.plan-marker').count(), 10);
+    assert.equal(await page.locator('#pview-rute .plan-item').count(), 10);
+    await page.screenshot({ path: path.join(SHOT_DIR, '18-rute.png') });
+    const first = await page.locator('#pview-rute [data-plan-done]').first().getAttribute('data-plan-done');
+    await page.click('#pview-rute [data-plan-done="' + first + '"]');
+    await page.waitForFunction(() => window.__PP_STATE__.plan.length === 9);
+    const done = await page.evaluate((id) => window.__PP_STATE__.profiles[id], first);
+    assert.equal(done.status, 'kunjungan');
+    assert.equal(done.aktivitas[done.aktivitas.length - 1].jenis, 'kunjungan');
+    // Kembali ke titik awal: tujuan = kantor
+    await page.check('#planBack');
+    assert.match(await page.getAttribute('#planOpen', 'href'), /destination=-7\.138600,110\.405300/);
+    await page.uncheck('#planBack');
+  });
+
+  await step('kalkulator kelayakan dan checklist dokumen', async () => {
+    await page.click('#pviewSeg [data-pview="daftar"]');
+    await page.fill('#prospectSearch', 'Maju Bersama');
+    await page.click('#prospectList .item:has-text("CV Maju Bersama")');
+    await page.waitForSelector('#dossier:not([hidden])');
+    assert.match(await page.locator('#calcResult').innerText(), /Isi laporan keuangan/);
+    await page.click('[data-action="add-year"]');
+    await page.fill('.fin-card [data-k-f="tahun"]', '2025');
+    await page.fill('.fin-card [data-k-f="penjualan"]', '12 M');
+    await page.fill('.fin-card [data-k-f="laba"]', '900 jt');
+    await page.click('.fin-card .fin-extra summary');
+    const fill = { hpp: '9 M', piutang: '1,5 M', persediaan: '1,2 M', utangUsaha: '600 jt', penyusutan: '300 jt', bebanBunga: '100 jt', angsuranTahun: '200 jt' };
+    for (const [k, v] of Object.entries(fill)) await page.fill('.fin-card [data-k-f="' + k + '"]', v);
+    await page.fill('[data-c-f="investasi"]', '3 M');
+    const res = await page.locator('#calcResult').innerText();
+    assert.match(res, /Siklus kas\s*70 hari/);
+    assert.match(res, /DSCR\s*1,50×/);
+    assert.match(res, /Perkiraan plafond\s*Rp 3,43 M\s*Sesuai target/);
+    await page.click('[data-action="use-calc"]');
+    assert.equal(await page.inputValue('[data-f="plafond"]'), '3.430.000.000');
+    for (const id of ['akta', 'nib', 'npwp']) await page.check('[data-doc="' + id + '"]');
+    assert.equal(await page.locator('#docProg').innerText(), '3/19');
+    const links = await page.locator('.track a').evaluateAll((as) => as.map((a) => a.textContent + '|' + a.href));
+    assert.equal(links.length, 4);
+    assert.match(links[0], /^Tender pemerintah\|https:\/\/www\.google\.com\/search\?q=%22CV%20Maju%20Bersama%22%20pemenang%20tender/);
+    assert.match(links[1], /site%3Apu\.go\.id/);
+    assert.match(links[2], /site%3Ainaexport\.id/);
+    assert.match(links[3], /^Berita\|https:\/\/news\.google\.com\/search/);
+    await page.waitForTimeout(600);
+    const pr = await page.evaluate(() => Object.values(window.__PP_STATE__.profiles).find((p) => p.name === 'CV Maju Bersama'));
+    assert.equal(pr.plafond, 3.43e9);
+    assert.equal(pr.kalkulator.investasi, 3e9);
+    assert.deepEqual(Object.keys(pr.dokumen).sort(), ['akta', 'nib', 'npwp']);
+    assert.equal(pr.keuangan[0].hpp, 9e9);
+    await page.screenshot({ path: path.join(SHOT_DIR, '19-kalkulator.png') });
+    await page.click('#btnDossierClose');
+    await page.fill('#prospectSearch', '');
+  });
+
+  await step('sembunyikan perusahaan yang tidak relevan, lalu tampilkan lagi', async () => {
+    await openResult('Hotel Ungaran Indah');
+    await page.selectOption('#hideReason', 'bukan');
+    await page.click('[data-action="hide-company"]');
+    await page.waitForFunction(() => !window.__PP_STATE__.results.some((c) => c.name === 'Hotel Ungaran Indah'));
+    assert.match(await page.locator('#detectNotice').innerText(), /1 perusahaan Anda sembunyikan/);
+    let saved = {};
+    for (let i = 0; i < 30 && !Object.keys(saved || {}).length; i++) {
+      await page.waitForTimeout(100);
+      saved = await page.evaluate(() => PP.store.get('hidden'));
+    }
+    assert.deepEqual(Object.values(saved).map((h) => h.r + '|' + h.name), ['bukan|Hotel Ungaran Indah']);
+    await page.click('#detectNotice [data-action="show-hidden"]');
+    await page.waitForSelector('#resultList .item.dim:has-text("Hotel Ungaran Indah")');
+    assert.match(await page.locator('#resultList .item.dim').first().innerText(), /Disembunyikan: Bukan target/);
+    await page.click('#resultList .item.dim:has-text("Hotel Ungaran Indah")');
+    await page.click('#dossierFoot [data-action="unhide-company"]');
+    await page.waitForFunction(() => !Object.keys(window.__PP_STATE__.hidden).length);
+    await page.click('#btnDossierClose');
+    await page.click('#detectNotice [data-action="hide-hidden"]').catch(() => {});
+  });
+
+  await step('laporan mingguan: ringkasan, salin, Excel; cadangan lengkap', async () => {
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: base.replace(/\/$/, '') });
+    await page.click('#tabbtn-prospek');
+    await page.click('#pviewSeg [data-pview="laporan"]');
+    const txt = await page.locator('#pview-laporan').innerText();
+    assert.match(txt, /\b2\s*AKTIVITAS|\b2\s*Aktivitas/);
+    assert.match(txt, /WhatsApp 1 · Kunjungan 1/);
+    await page.click('[data-action="report-copy"]');
+    const clip = await page.evaluate(() => navigator.clipboard.readText());
+    // Kunjungan dari rute bisa jatuh ke CV Maju Bersama sendiri bila kantor itu titik pertama.
+    const contacted = await page.evaluate(() => Object.values(window.__PP_STATE__.profiles).filter((p) => p.aktivitas.length).length);
+    assert.match(clip, /^Laporan aktivitas RM – Aziz \(BNI KCP Ungaran\)\nPeriode: /);
+    assert.match(clip, new RegExp('Aktivitas: 2 \\(whatsapp 1, kunjungan 1\\) ke ' + contacted + ' prospek'));
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-action="report-xlsx"]')]);
+    const XLSX = require(path.join(ROOT, 'vendor/xlsx/xlsx.core.min.js'));
+    const wb = XLSX.read(fs.readFileSync(await dl.path()));
+    assert.deepEqual(wb.SheetNames, ['Ringkasan', 'Aktivitas', 'Pipeline']);
+    assert.equal(XLSX.utils.sheet_to_json(wb.Sheets.Aktivitas).length, 2);
+    await page.screenshot({ path: path.join(SHOT_DIR, '20-laporan.png') });
+    await page.click('#btnSettings');
+    const [bk] = await Promise.all([page.waitForEvent('download'), page.click('#btnBackup')]);
+    const data = JSON.parse(fs.readFileSync(await bk.path(), 'utf8'));
+    assert.equal(data.plan.ids.length, 9);
+    const mb = data.profiles.find((x) => x.name === 'CV Maju Bersama');
+    assert.ok(mb.aktivitas.length >= 1);
+    assert.equal(data.profiles.reduce((n, x) => n + (x.aktivitas || []).length, 0), 2);
+    assert.equal(data.settings.rmName, 'Aziz');
+    await page.click('#formSettings .dlg-foot button[value="cancel"]');
+    await page.click('#pviewSeg [data-pview="daftar"]');
+  });
+
   // Ponsel
   const mobile = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'id-ID' });
   await mockNetwork(mobile);
@@ -867,6 +1069,12 @@ async function run() {
     await m.click('#dlgBranch button[value="cancel"] >> nth=1');
     await m.waitForFunction(() => !document.getElementById('dlgBranch').open && !window.__PP_STATE__.branchDraft);
     assert.equal(await m.evaluate(() => window.__PP_STATE__.branches.some((b) => b.name === 'BNI KK Uji Ponsel')), false);
+    await m.click('#tabbtn-prospek');
+    await m.click('#pviewSeg [data-pview="agenda"]');
+    const ov2 = await m.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    assert.ok(ov2 <= 0, 'overflow horizontal di Agenda ' + ov2);
+    await m.screenshot({ path: path.join(SHOT_DIR, '21-ponsel-agenda.png') });
+    await m.click('#pviewSeg [data-pview="daftar"]');
     await m.click('#tabbtn-deteksi');
     await m.click('#sheetHandle');
     assert.equal(await m.evaluate(() => document.getElementById('app').dataset.sheet), 'full');

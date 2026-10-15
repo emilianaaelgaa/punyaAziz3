@@ -21,10 +21,20 @@ Aplikasi ini alat bantu pribadi, bukan aplikasi resmi BNI.
 - **Jembatan ke Google Maps (gratis)**: tautan "Cari di Google Maps" membuka pencarian PT, CV, UD, pabrik, gudang, dan distributor di sekitar kantor. Perusahaan yang ditemukan bisa dimasukkan dengan menempel koordinat atau tautan Google Maps-nya.
 - **Detail perusahaan**: kategori usaha, alamat, telepon, situs web, kantor BNI terdekat, serta tautan riset ke Google Maps, Street View, Google, AHU Online, LinkedIn, dan IDX (untuk Tbk).
 - **Pipeline kredit**: status (baru → dihubungi → kunjungan → pengajuan → disetujui/ditolak), estimasi plafond dengan tanda "sesuai target", produk KMK/KI, jadwal follow-up, PIC, dan catatan.
+- **Kerja harian RM** (lihat [Kerja harian](#kerja-harian)):
+  - **Prioritas**: skor 0–100 per perusahaan dari zona, sektor, badan usaha, ketersediaan kontak, dan tahap pipeline. Hasil deteksi dan prospek bisa diurutkan menurut prioritas.
+  - **Rute kunjungan**: sampai 10 prospek disusun dalam urutan terpendek, lalu dibuka sebagai rute di Google Maps.
+  - **Agenda follow-up**: terlambat, hari ini, dan 7 hari ke depan, dengan tombol Google Calendar dan unduh .ics.
+  - **Riwayat aktivitas dan laporan**: catat telepon, WhatsApp, dan kunjungan; laporan mingguan atau bulanan untuk atasan.
+  - **WhatsApp perkenalan**: satu ketuk membuka WhatsApp dengan pesan perkenalan dari template.
+  - **Kalkulator kelayakan**: perkiraan KMK, KI, DSCR, dan plafond maksimal dari laporan keuangan.
+  - **Checklist dokumen pengajuan** dan tautan Zona Nilai Tanah untuk perkiraan nilai agunan.
+  - **Cek rekam jejak**: tautan pencarian tender pemerintah, kontraktor (LPJK), eksportir, dan berita.
+  - **Sembunyikan yang tidak relevan**: perusahaan tutup atau bukan target tidak muncul lagi di hasil deteksi.
 - **Struktur organisasi**: isi pemegang saham, komisaris, direksi, atau sekutu CV; bagan tersusun otomatis.
 - **Laporan keuangan** per tahun: penjualan, laba bersih, aset, liabilitas, dan ekuitas, dengan rasio otomatis (margin laba, ROA, DER, pertumbuhan omzet).
 - **Impor Excel/CSV**: daftar prospek (termasuk pengurus dan keuangan) dan daftar kantor resmi. Baris tanpa koordinat dicarikan lokasinya dari alamat.
-- **Ekspor Excel**: hasil deteksi per zona dan seluruh pipeline (lembar Prospek, Pengurus, Keuangan). File ekspor bisa diimpor kembali di perangkat lain.
+- **Ekspor Excel**: hasil deteksi per zona dan seluruh pipeline (lembar Prospek, Pengurus, Keuangan, Aktivitas). File ekspor bisa diimpor kembali di perangkat lain; riwayat aktivitas ikut lewat file cadangan.
 - **Bisa dipasang di HP** sebagai aplikasi (Add to Home Screen), tampilan menyesuaikan layar ponsel, dan mendukung mode gelap.
 
 ## Cara membuka
@@ -57,6 +67,42 @@ Aplikasi membutuhkan internet untuk peta dan data OpenStreetMap. Jika jaringan k
    - Di aplikasi Google Maps HP: tekan lama lokasi perusahaan, salin koordinat yang muncul, lalu tempel.
    - Di Google Maps desktop: buka tempatnya, lalu salin alamat dari address bar browser (tautan yang memuat `!3d…!4d…` atau `@lat,lon`).
 7. Unduh **cadangan** secara berkala dari **Pengaturan**, karena data hanya tersimpan di browser perangkat tersebut.
+
+## Kerja harian
+
+Tab **Prospek** punya empat tampilan: **Daftar**, **Agenda**, **Rute**, dan **Laporan**. Alur yang disarankan:
+
+1. **Pagi: buka Agenda.** Prospek dengan follow-up terlambat dan hari ini tampil paling atas. Angka merah di tab Prospek menunjukkan jumlahnya, dan aplikasi mengingatkan sekali sehari saat dibuka. Tombol **Google Calendar** atau **Unduh semua ke kalender (.ics)** memasukkan jadwal ke kalender ponsel atau Outlook.
+2. **Susun rute.** Di **Rute**, tekan **Isi dari prioritas teratas**, atau tambahkan prospek dari detail perusahaan (**+ Rute kunjungan**), dari Agenda, atau dari klaster di tab Peluang (**Masukkan ke rute kunjungan**). Urutan terpendek dihitung otomatis dari kantor aktif, lokasi Anda, atau lokasi HP saat rute dibuka. **Buka rute di Google Maps** menampilkan rute jalan sebenarnya. Maksimal 10 titik; di HP, buka dengan aplikasi Google Maps karena browser HP hanya membaca 3 titik singgah.
+3. **Hubungi dengan WhatsApp.** Isi **Pengaturan → Profil RM** sekali (nama, jabatan, kantor). Di detail perusahaan yang punya nomor HP (di isian PIC atau telepon), tombol **WhatsApp** membuka chat dengan pesan perkenalan. Pesan tetap Anda kirim sendiri, satu per satu.
+4. **Catat setiap kontak.** Di **Riwayat aktivitas**, isi jenis (telepon, WhatsApp, kunjungan, rapat), hasil, langkah berikutnya, dan tanggal follow-up berikutnya. Status naik otomatis (aktivitas pertama → "Sudah dihubungi", kunjungan → "Kunjungan / survei"), tetapi tidak pernah turun. Tombol **Selesai** di Rute mencatat kunjungan.
+5. **Saring kelayakan.** Isi laporan keuangan beserta **Rincian untuk kalkulator kelayakan**, lalu lihat **Kalkulator kelayakan** dan tekan **Pakai sebagai estimasi plafond** bila sesuai. Centang **Kelengkapan dokumen pengajuan** saat dokumen diterima.
+6. **Akhir minggu: Laporan.** Pilih minggu ini, minggu lalu, atau bulan ini, lalu **Salin ringkasan** (untuk WhatsApp/email ke atasan) atau **Unduh Excel**.
+
+### Skor prioritas
+
+| Komponen | Bobot | Nilai |
+|---|---|---|
+| Zona | 30 | merah 1, oranye 0,75, hijau 0,45, luar zona 0,2 |
+| Kecocokan sektor dengan kredit Rp1–25 M | 25 | sama dengan tab Peluang (distribusi dan pabrik 1,0 … bidang belum diketahui 0,4) |
+| Badan usaha | 15 | PT 1, CV 0,85, Firma 0,75, UD/PD/koperasi 0,7, lainnya 0,55, Tbk/BUMN 0,3 |
+| Kontak | 10 | ada nomor HP 1, ada telepon/situs 0,7, tidak ada 0,3 |
+| Tahap pipeline | 20 | belum disimpan 0,5, baru 0,6, dihubungi 0,9, kunjungan 1, pengajuan 0,7; +0,3 bila plafond sesuai target, −0,4 bila di luar target; follow-up hari ini/terlambat = 1 |
+
+Skor ≥ 70 ditandai **Prioritas tinggi**. Prospek yang sudah disetujui atau ditolak bernilai 0.
+
+### Kalkulator kelayakan
+
+Perhitungan memakai laporan keuangan tahun terakhir dan dapat diubah lewat isian bunga, tenor, porsi bank, rencana investasi, KMK di bank lain, dan pertumbuhan.
+
+- **Siklus kas** = hari piutang (piutang ÷ penjualan × 365) + hari persediaan (persediaan ÷ HPP × 365) − hari utang usaha (utang usaha ÷ HPP × 365).
+- **Kebutuhan modal kerja** = siklus kas ÷ 365 × HPP × (1 + pertumbuhan). Pertumbuhan bawaan diambil dari kenaikan penjualan tahun lalu (0–30%), atau 10% bila belum ada.
+- **Perkiraan KMK** = kebutuhan modal kerja × porsi bank (bawaan 70%) − KMK di bank lain.
+- **Perkiraan KI** = rencana investasi × porsi bank, dengan angsuran anuitas (bawaan bunga 10% per tahun, tenor 5 tahun).
+- **DSCR** = (laba bersih + penyusutan + beban bunga) ÷ (angsuran pinjaman lama + bunga KMK + angsuran KI). **KI maksimal** adalah pinjaman terbesar yang masih menjaga DSCR ≥ 1,25.
+- **Perkiraan plafond** = KMK + KI (KI dibatasi KI maksimal).
+
+Hasilnya perkiraan kasar untuk menyaring prospek sejak awal, bukan analisis kredit resmi. Keputusan kredit tetap mengikuti analisis dan ketentuan BNI.
 
 ## Peluang pasar
 
@@ -129,7 +175,8 @@ Tarif dapat berubah; cek halaman harga Google Maps Platform. Pembatas di aplikas
 
 ## Privasi dan kepatuhan
 
-- Semua prospek, catatan, data pengurus, laporan keuangan, dan kantor yang Anda tambahkan atau ubah **tersimpan hanya di browser perangkat Anda** (IndexedDB) dan ikut dalam file cadangan. Tidak ada server aplikasi; yang dikirim ke internet hanya permintaan peta dan pencarian OpenStreetMap (koordinat area dan alamat saat impor).
+- Semua prospek, catatan, data pengurus, laporan keuangan, riwayat aktivitas, rute, dan kantor yang Anda tambahkan atau ubah **tersimpan hanya di browser perangkat Anda** (IndexedDB) dan ikut dalam file cadangan.
+- Aplikasi tidak pernah mengirim pesan sendiri. Tombol WhatsApp hanya membuka chat berisi pesan perkenalan; Anda yang memutuskan mengirimnya. Kirim satu per satu kepada calon debitur, jangan massal, karena aturan pelindungan konsumen OJK membatasi penawaran lewat saluran komunikasi pribadi tanpa persetujuan. Tidak ada server aplikasi; yang dikirim ke internet hanya permintaan peta dan pencarian OpenStreetMap (koordinat area dan alamat saat impor).
 - **Jangan memasukkan data SLIK OJK.** SLIK hanya boleh diakses untuk calon debitur yang sudah mengajukan kredit dan dengan persetujuannya, bukan untuk prospecting.
 - Nama pengurus dan pemegang saham termasuk **data pribadi** menurut UU No. 27 Tahun 2022 tentang Pelindungan Data Pribadi. Simpan seperlunya, lindungi perangkat dengan kunci layar, dan ikuti kebijakan keamanan informasi BNI sebelum menggunakan aplikasi ini untuk data nasabah.
 - Jangan menyimpan file ekspor atau cadangan yang berisi data prospek di repositori ini.
@@ -145,7 +192,7 @@ Unduh template dari menu **Impor Excel**. Judul kolom tidak harus persis; aplika
 | Lokasi | Latitude + Longitude, atau Koordinat (tempel dari Google Maps), atau Alamat + Kota |
 | Pipeline | Status, Plafond (`2500000000`, `2,5 M`, `750 jt`), Produk, Follow-up, PIC, Catatan, Nasabah BNI |
 | Pengurus | Direktur Utama, Direktur, Komisaris Utama, Komisaris, Pemegang Saham, Pemilik, Sekutu Aktif, Sekutu Pasif. Beberapa orang dipisah titik koma: `Budi (60%); Ani (40%)` |
-| Keuangan | Tahun, Penjualan/Omzet, Laba Bersih, Total Aset, Total Liabilitas, Ekuitas |
+| Keuangan | Tahun, Penjualan/Omzet, Laba Bersih, Total Aset, Total Liabilitas, Ekuitas. Untuk kalkulator: HPP, Piutang Usaha, Persediaan, Utang Usaha, Penyusutan, Beban Bunga, Angsuran Pinjaman (per tahun) |
 
 Pengurus dan keuangan beberapa tahun juga bisa diisi di lembar terpisah bernama **Pengurus** dan **Keuangan** dengan kolom **Perusahaan** sebagai penghubung. Daftar kantor resmi memakai kolom Nama Cabang, Jenis (KC/KCP/KK), Alamat, Kota, Latitude, Longitude.
 

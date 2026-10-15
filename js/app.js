@@ -45,6 +45,14 @@
     gJob: null,
     gUsage: null,
     sectorFilter: null,
+    plan: [],
+    planStart: 'branch',
+    planBack: false,
+    pview: 'daftar',
+    reportPeriod: 'minggu',
+    hidden: {},
+    showHidden: false,
+    hiddenInCtx: 0,
     econ: null,
     city: null,
     peluang: null,
@@ -244,6 +252,7 @@
     layers.saved = L.layerGroup().addTo(map);
     layers.me = L.layerGroup().addTo(map);
     layers.insight = L.layerGroup().addTo(map);
+    layers.plan = L.layerGroup().addTo(map);
     layers.branches = L.markerClusterGroup({
       showCoverageOnHover: false, maxClusterRadius: 50, disableClusteringAtZoom: 12,
       spiderfyOnMaxZoom: false, chunkedLoading: true, iconCreateFunction: clusterIcon
@@ -917,6 +926,7 @@
   function computeResults() {
     var ctx = state.resultsCtx;
     var list = [];
+    state.hiddenInCtx = 0;
     if (ctx) {
       var r = state.settings.radii;
       var vb = visibleBranches();
@@ -924,6 +934,12 @@
       var add = function (c, profile) {
         var item = Object.assign({}, c);
         item.profile = profile || profileFor(c);
+        var hid = item.profile ? null : hiddenRecord(item);
+        if (hid) {
+          state.hiddenInCtx++;
+          if (!state.showHidden) return;
+          item.hidden = hid;
+        }
         var near = U.nearestBranch(item.lat, item.lon, vb);
         item.nearest = near ? { id: near.branch.id, name: near.branch.name, dist: near.dist, lat: near.branch.lat, lon: near.branch.lon } : null;
         if (ctx.kind === 'branch') {
@@ -1143,7 +1159,8 @@
           var sub = [U.formatKm(U.haversineKm(ref.lat, ref.lon, c.lat, c.lon)) + ' dari ' + refName, st, entityMix(c.entities)].filter(Boolean).join(' · ');
           return '<li><button type="button" class="item" data-cluster="' + i + '"><span class="ins-badge">K' + (i + 1) + '</span>' +
             '<span class="item-main"><span class="item-title">' + U.formatCount(c.size) + ' usaha · ' + esc(c.sector ? U.SECTOR_BY_ID[c.sector].label : 'sektor campuran') + '</span>' +
-            '<span class="item-sub">' + esc(sub) + '</span></span></button></li>';
+            '<span class="item-sub">' + esc(sub) + '</span></span></button>' +
+            '<button type="button" class="ins-sub-link linklike" data-plan-cluster="' + i + '">Masukkan ke rute kunjungan</button></li>';
         }).join('') + '</ul></section>');
     }
 
@@ -1233,8 +1250,10 @@
     });
     var sort = $('resultSort').value;
     var zoneOrder = { red: 0, orange: 1, green: 2, out: 3 };
+    if (sort === 'priority') list.forEach(function (c) { c._prio = prioOf(c).score; });
     list.sort(function (a, b) {
       if (sort === 'name') return a.name.localeCompare(b.name, 'id');
+      if (sort === 'priority' && a._prio !== b._prio) return b._prio - a._prio;
       if (sort === 'entity') {
         var ea = U.ENTITIES.findIndex(function (e) { return e.id === a.entity; });
         var eb = U.ENTITIES.findIndex(function (e) { return e.id === b.entity; });
@@ -1292,6 +1311,7 @@
   function ensureProfile(item) {
     var p = state.profiles[item.id] || (item.profile && state.profiles[item.profile.id]);
     if (p) { item.profile = p; return p; }
+    if (state.hidden[item.id]) { delete state.hidden[item.id]; delete item.hidden; saveHiddenSoon(); }
     p = U.newProfile({
       id: item.id, name: item.name, entity: item.entity, lat: item.lat, lon: item.lon, address: item.address, city: item.city,
       phone: item.phone, email: item.email, website: item.website, category: item.category, osm: item.osm,
@@ -1333,6 +1353,7 @@
     delete state.profiles[id];
     pendingSaves.delete(id);
     await S.del('p:' + id);
+    if (state.plan.indexOf(id) >= 0) { state.plan.splice(state.plan.indexOf(id), 1); savePlanSoon(); }
     closeDossier(true);
     computeResults();
     toast('Prospek dihapus.');
@@ -1484,6 +1505,11 @@
     if (hasCtx && isGoogleMode() && state.gJob && !state.resultsLoading) notes.push(googleNoticeHTML());
     var hiddenEnt = state.results.filter(function (c) { return ef[c.entity] === false; }).length;
     if (!notes.length && hiddenEnt) notes.push(U.formatCount(hiddenEnt) + ' hasil disembunyikan oleh filter badan usaha (mis. PT Tbk dan BUMN yang biasanya di atas target plafond).');
+    if (hasCtx && state.hiddenInCtx) {
+      notes.push(state.showHidden
+        ? 'Menampilkan ' + U.formatCount(state.hiddenInCtx) + ' perusahaan yang Anda sembunyikan. <button type="button" data-action="hide-hidden">Sembunyikan lagi</button>'
+        : U.formatCount(state.hiddenInCtx) + ' perusahaan Anda sembunyikan (tutup / bukan target). <button type="button" data-action="show-hidden">Tampilkan</button>');
+    }
     $('detectNotice').innerHTML = notes.join('<br>');
     $('detectNotice').hidden = !notes.length;
 
@@ -1539,12 +1565,14 @@
     if (c.source === 'import') tags += '<span class="tag">Impor</span>';
     else if (c.source === 'manual') tags += '<span class="tag">Manual</span>';
     if (c.closedTemporarily) tags += '<span class="tag warn">Tutup sementara</span>';
+    if (c.hidden) tags += '<span class="tag">Disembunyikan: ' + esc(U.HIDE_LABEL[c.hidden.r] || '') + '</span>';
+    else tags += prioTagHTML(prioOf(c));
     var sub = [c.category && c.category !== 'Lainnya' ? c.category : '', c.address || c.city].filter(Boolean).join(' · ');
     var side = '<b>' + U.formatKm(c.dist) + '</b>';
     if (state.activeBranch && c.nearest && c.nearest.id !== state.activeBranch.id && c.nearest.dist + 0.05 < c.dist) {
       side += '<span title="Lebih dekat ke ' + esc(c.nearest.name) + '">lebih dekat ke kantor lain</span>';
     }
-    return '<li><button type="button" class="item' + (state.selectedId === c.id ? ' selected' : '') + '" data-id="' + esc(c.id) + '">' +
+    return '<li><button type="button" class="item' + (state.selectedId === c.id ? ' selected' : '') + (c.hidden ? ' dim' : '') + '" data-id="' + esc(c.id) + '">' +
       '<span class="zdot ' + c.zone + (p ? ' saved' : '') + '"></span>' +
       '<span class="item-main"><span class="item-title">' + esc(c.name) + '</span>' +
       (sub ? '<span class="item-sub">' + esc(sub) + '</span>' : '') +
@@ -1588,9 +1616,16 @@
       return true;
     });
     var sort = $('prospectSort').value;
+    var prioView = function (v) {
+      var c = profileAsCompany(v.profile);
+      c.zone = v.zone || 'out';
+      return prioOf(c, v.profile);
+    };
+    list.forEach(function (v) { v.prio = prioView(v); });
     list.sort(function (a, b) {
       var pa = a.profile, pb = b.profile;
       if (sort === 'name') return pa.name.localeCompare(pb.name, 'id');
+      if (sort === 'priority') return (b.prio.score - a.prio.score) || (pb.updatedAt || 0) - (pa.updatedAt || 0);
       if (sort === 'plafond') return (pb.plafond || 0) - (pa.plafond || 0);
       if (sort === 'followup') return (pa.followUp || '9999') < (pb.followUp || '9999') ? -1 : (pa.followUp || '9999') > (pb.followUp || '9999') ? 1 : 0;
       return (pb.updatedAt || 0) - (pa.updatedAt || 0);
@@ -1607,6 +1642,8 @@
       if (p.followUp) tags += '<span class="tag' + (open && p.followUp < today ? ' late' : '') + '">' + (open && p.followUp < today ? 'Lewat ' : 'Follow-up ') + esc(U.formatDate(p.followUp)) + '</span>';
       if (p.lat == null) tags += '<span class="tag warn">Belum ada lokasi</span>';
       else if (p.geo === 'approx') tags += '<span class="tag warn">Lokasi perkiraan</span>';
+      tags += prioTagHTML(v.prio);
+      if (state.plan.indexOf(p.id) >= 0) tags += '<span class="tag">Di rute</span>';
       var sub = v.nearest ? U.formatKm(v.nearest.dist) + ' dari ' + v.nearest.name : (p.address || p.city || '');
       return '<li><button type="button" class="item' + (state.selectedId === p.id ? ' selected' : '') + '" data-id="' + esc(p.id) + '">' +
         '<span class="zdot ' + (v.zone || 'out') + ' saved"></span>' +
@@ -1629,12 +1666,437 @@
     $('prospectEmpty').innerHTML = empty;
     $('prospectEmpty').hidden = !empty;
     $('btnExportProspects').disabled = !views.length;
+    updateWorkBadges();
+    if (state.tab === 'prospek' && state.pview !== 'daftar') renderPview();
   }
 
   function updateCounts() {
     $('countBranches').textContent = U.formatCount(visibleBranches().length);
     $('countResults').textContent = U.formatCount(state.resultsCtx ? filteredResults().length : 0);
     $('countProspects').textContent = U.formatCount(prospectViews().length);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Kerja harian RM: prioritas, agenda follow-up, rencana rute, laporan
+  // ---------------------------------------------------------------------------
+
+  function prioOf(c, p) { return U.priorityScore(c, p === undefined ? c.profile || null : p, state.settings, todayISO()); }
+
+  function prioTagHTML(pr) {
+    if (pr.level !== 'tinggi') return '';
+    return '<span class="tag prio" title="' + esc('Karena: ' + pr.reasons.join(', ')) + '">Prioritas tinggi</span>';
+  }
+
+  // Data untuk template pesan: kantor diambil dari Pengaturan, atau kantor aktif/terdekat.
+  function rmVars(name, pic, branch) {
+    var s = state.settings;
+    var b = state.activeBranch || branch || null;
+    var kantor = s.rmOffice || (b ? b.name.replace(/^BNI\s+/i, '') : '');
+    return {
+      waktu: U.greetingFor(new Date()), sapaan: U.sapaanFor(pic), nama_rm: U.normSpace(s.rmName),
+      jabatan: U.normSpace(s.rmTitle) || 'Relationship Manager', kantor: kantor, perusahaan: name
+    };
+  }
+
+  function introMessage(name, pic, branch) {
+    return U.fillTemplate(state.settings.waTemplate || U.WA_TEMPLATE, rmVars(name, pic, branch));
+  }
+
+  function needRmProfile() {
+    if (U.normSpace(state.settings.rmName)) return false;
+    toast('Isi nama Anda dulu di Pengaturan → Profil RM, agar pesan perkenalan lengkap.', { ms: 6000 });
+    openSettings({ focus: 'setRmName' });
+    return true;
+  }
+
+  // Buka WhatsApp dengan pesan perkenalan untuk prospek (atau item hasil deteksi).
+  function openWhatsApp(name, contactText, branch) {
+    var num = U.waNumber(contactText);
+    if (!num) { toast('Belum ada nomor HP (08…) di isian PIC atau telepon.', { error: true }); return false; }
+    if (needRmProfile()) return false;
+    window.open(U.waUrl(num, introMessage(name, contactText, branch)), '_blank', 'noopener');
+    return true;
+  }
+
+  function nearestBranchOf(p) {
+    if (p.lat == null) return null;
+    var n = U.nearestBranch(p.lat, p.lon, visibleBranches());
+    return n ? n.branch : null;
+  }
+
+  function followUpEvent(p) {
+    var last = U.lastActivity(p);
+    var details = [
+      'Status: ' + (U.STATUS_LABEL[p.status] || ''),
+      p.plafond != null ? 'Estimasi plafond: ' + U.formatRpShort(p.plafond) : '',
+      p.pic ? 'PIC: ' + p.pic : '',
+      last && last.langkah ? 'Langkah berikutnya: ' + last.langkah : '',
+      p.lat != null ? 'Peta: https://www.google.com/maps/search/?api=1&query=' + p.lat + ',' + p.lon : ''
+    ].filter(Boolean).join('\n');
+    return {
+      uid: 'fu-' + U.normKey(p.id) + '-' + p.followUp.replace(/-/g, '') + '@peta-prospek',
+      date: p.followUp, title: 'Follow-up ' + p.name, details: details,
+      location: [p.address, p.city].filter(Boolean).join(', ')
+    };
+  }
+
+  // --- Sub-tampilan tab Prospek ---------------------------------------------
+
+  function setPview(v) {
+    state.pview = v;
+    document.querySelectorAll('#pviewSeg [data-pview]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.getAttribute('data-pview') === v));
+    });
+    ['daftar', 'agenda', 'rute', 'laporan'].forEach(function (k) { $('pview-' + k).hidden = k !== v; });
+    renderPview();
+    if (v === 'rute') fitPlan();
+  }
+
+  function renderPview() {
+    if (state.tab === 'prospek') {
+      if (state.pview === 'agenda') renderAgenda();
+      else if (state.pview === 'rute') renderPlan();
+      else if (state.pview === 'laporan') renderReport();
+    }
+    renderPlanLayer();
+  }
+
+  function updateWorkBadges() {
+    var g = U.agendaGroups(Object.keys(state.profiles).map(function (id) { return state.profiles[id]; }), todayISO());
+    var due = g.late.length + g.today.length;
+    [$('agendaBadge'), $('agendaAlert')].forEach(function (el) { el.textContent = due ? U.formatCount(due) : ''; el.hidden = !due; });
+    $('planBadge').textContent = state.plan.length ? U.formatCount(state.plan.length) : '';
+    $('planBadge').hidden = !state.plan.length;
+  }
+
+  // --- Agenda follow-up ------------------------------------------------------
+
+  function agendaItemHTML(p, group) {
+    var v = prospectView(p);
+    var last = U.lastActivity(p);
+    var due = group === 'none' ? 'Belum dijadwalkan' : (group === 'late' ? 'Lewat ' : '') + U.formatDate(p.followUp);
+    var sub = [U.STATUS_LABEL[p.status], p.plafond != null ? U.formatRpShort(p.plafond) : '', v.nearest ? U.formatKm(v.nearest.dist) + ' dari ' + v.nearest.name : '']
+      .filter(Boolean).join(' · ');
+    var next = last ? (last.langkah ? 'Langkah: ' + last.langkah : 'Terakhir: ' + U.ACTIVITY_LABEL[last.jenis].toLowerCase() + ' ' + U.formatDate(last.tanggal)) : '';
+    var wa = U.waNumber([p.pic, p.phone].join(' '));
+    var inPlan = state.plan.indexOf(p.id) >= 0;
+    return '<li class="ag-item"><button type="button" class="item" data-id="' + esc(p.id) + '"><span class="zdot ' + (v.zone || 'out') + ' saved"></span>' +
+      '<span class="item-main"><span class="item-title">' + esc(p.name) + '</span><span class="item-sub">' + esc(sub) + '</span>' +
+      (next ? '<span class="item-sub">' + esc(next) + '</span>' : '') + '</span>' +
+      '<span class="item-side"><b class="' + (group === 'late' ? 'late' : '') + '">' + esc(due) + '</b></span></button>' +
+      '<div class="ag-actions">' +
+      (wa ? '<button type="button" class="btn small" data-wa-id="' + esc(p.id) + '"><svg class="i"><use href="#i-chat"/></svg>WhatsApp</button>' : '') +
+      (p.followUp ? '<a class="btn small" href="' + esc(U.gcalUrl(followUpEvent(p))) + '" target="_blank" rel="noopener"><svg class="i"><use href="#i-calendar"/></svg>Google Calendar</a>' : '') +
+      '<button type="button" class="btn small" data-plan-toggle="' + esc(p.id) + '">' + (inPlan ? '✓ Di rute' : '+ Rute') + '</button>' +
+      '</div></li>';
+  }
+
+  function renderAgenda() {
+    var all = Object.keys(state.profiles).map(function (id) { return state.profiles[id]; });
+    var g = U.agendaGroups(all, todayISO());
+    var open = g.late.length + g.today.length + g.week.length + g.later.length + g.none.length;
+    var html = [];
+    if (!open) {
+      html.push('<div class="empty"><strong>Belum ada prospek aktif</strong><p>Simpan perusahaan ke Prospek saya dan isi tanggal follow-up. Agenda tersusun otomatis di sini.</p></div>');
+      $('pview-agenda').innerHTML = html.join('');
+      return;
+    }
+    var scheduled = g.late.length + g.today.length + g.week.length + g.later.length;
+    html.push('<section class="ins-sec"><p class="ins-note">' + U.formatCount(g.late.length) + ' terlambat · ' + U.formatCount(g.today.length) + ' hari ini · ' +
+      U.formatCount(g.week.length) + ' dalam 7 hari. Tanggal follow-up diisi di detail prospek atau saat mencatat aktivitas.</p>' +
+      (scheduled ? '<div class="btn-row"><button type="button" class="btn small" data-action="agenda-ics"><svg class="i"><use href="#i-calendar"/></svg>Unduh semua ke kalender (.ics)</button></div>' : '') +
+      '</section>');
+    [['late', 'Terlambat'], ['today', 'Hari ini'], ['week', '7 hari ke depan'], ['later', 'Nanti']].forEach(function (sec) {
+      var items = g[sec[0]];
+      if (!items.length) return;
+      html.push('<section class="ins-sec"><h3>' + sec[1] + ' <small>' + U.formatCount(items.length) + '</small></h3><ul class="ins-list ag-list">' +
+        items.map(function (p) { return agendaItemHTML(p, sec[0]); }).join('') + '</ul></section>');
+    });
+    if (g.none.length) {
+      html.push('<details class="ins-sec"><summary>Belum dijadwalkan <small>' + U.formatCount(g.none.length) + ' prospek aktif</small></summary><ul class="ins-list ag-list">' +
+        g.none.map(function (p) { return agendaItemHTML(p, 'none'); }).join('') + '</ul></details>');
+    }
+    $('pview-agenda').innerHTML = html.join('');
+  }
+
+  // Masukkan anggota klaster (prioritas tertinggi lebih dulu) ke rute kunjungan.
+  function planCluster(cl) {
+    var room = U.MAX_ROUTE_STOPS - state.plan.length;
+    if (room <= 0) { toast('Rute sudah penuh (' + U.MAX_ROUTE_STOPS + ' titik).'); return; }
+    var picks = cl.members.filter(function (m) { return !m.profile || U.isOpenStatus(m.profile.status); })
+      .map(function (m) { return { c: m, pr: prioOf(m) }; })
+      .sort(function (a, b) { return b.pr.score - a.pr.score; });
+    var added = 0;
+    picks.forEach(function (x) {
+      if (added >= room) return;
+      var had = !!x.c.profile;
+      var p = ensureProfile(x.c);
+      if (!had) touch(p);
+      if (state.plan.indexOf(p.id) < 0) { state.plan.push(p.id); added++; }
+    });
+    savePlanSoon();
+    updateWorkBadges();
+    toast(U.formatCount(added) + ' usaha dari klaster masuk rute kunjungan. Buka Prospek → Rute.');
+  }
+
+  function downloadAgendaIcs() {
+    var events = Object.keys(state.profiles).map(function (id) { return state.profiles[id]; })
+      .filter(function (p) { return p.name && p.followUp && U.isOpenStatus(p.status); })
+      .map(followUpEvent);
+    if (!events.length) return;
+    X.downloadBlob(new Blob([U.icsCalendar(events)], { type: 'text/calendar' }), 'follow-up-prospek-' + todayISO() + '.ics');
+    toast(U.formatCount(events.length) + ' follow-up diunduh. Buka file .ics untuk memasukkannya ke kalender.');
+  }
+
+  // --- Rencana rute kunjungan ------------------------------------------------
+
+  var savePlanSoon = debounce(function () {
+    S.set('plan', { ids: state.plan, start: state.planStart, back: state.planBack });
+  }, 300);
+
+  function planProfiles() {
+    return state.plan.map(function (id) { return state.profiles[id]; }).filter(Boolean);
+  }
+
+  function planStartPoint(stops) {
+    if (state.planStart === 'me') return state.userLoc ? { lat: state.userLoc.lat, lon: state.userLoc.lon, name: 'Lokasi Anda' } : null;
+    if (state.planStart === 'none') return null;
+    var b = state.activeBranch || (stops[0] ? nearestBranchOf(stops[0]) : null);
+    return b ? { lat: b.lat, lon: b.lon, name: b.name } : null;
+  }
+
+  function computePlan() {
+    var ps = planProfiles().filter(function (p) { return p.lat != null; });
+    var start = planStartPoint(ps);
+    return { start: start, route: U.planRoute(start, ps, { returnToStart: state.planBack }) };
+  }
+
+  function togglePlan(id, force) {
+    var i = state.plan.indexOf(id);
+    var on = force != null ? force : i < 0;
+    if (on && i < 0) {
+      if (state.plan.length >= U.MAX_ROUTE_STOPS) {
+        toast('Rute maksimal ' + U.MAX_ROUTE_STOPS + ' titik (batas Google Maps). Selesaikan atau hapus titik lain dulu.', { error: true });
+        return false;
+      }
+      state.plan.push(id);
+    } else if (!on && i >= 0) state.plan.splice(i, 1);
+    savePlanSoon();
+    updateWorkBadges();
+    renderPview();
+    return true;
+  }
+
+  // Isi rute dengan prospek berprioritas tertinggi: dari hasil deteksi aktif, atau dari Prospek saya.
+  function autoFillPlan() {
+    var room = U.MAX_ROUTE_STOPS - state.plan.length;
+    if (room <= 0) { toast('Rute sudah penuh (' + U.MAX_ROUTE_STOPS + ' titik).'); return; }
+    var ef = state.settings.entityFilter;
+    var cands;
+    if (state.results.length) {
+      cands = state.results.filter(function (c) {
+        return !c.hidden && ef[c.entity] !== false && c.zone !== 'out' && (!c.profile || U.isOpenStatus(c.profile.status)) &&
+          state.plan.indexOf(c.profile ? c.profile.id : c.id) < 0;
+      });
+    } else {
+      cands = prospectViews().filter(function (v) {
+        return v.profile.lat != null && U.isOpenStatus(v.profile.status) && state.plan.indexOf(v.profile.id) < 0;
+      }).map(function (v) { var c = profileAsCompany(v.profile); c.profile = v.profile; c.zone = v.zone || 'out'; return c; });
+    }
+    cands = cands.map(function (c) { return { c: c, pr: prioOf(c) }; })
+      .sort(function (a, b) { return (b.pr.score - a.pr.score) || ((a.c.dist || 0) - (b.c.dist || 0)); })
+      .slice(0, room);
+    if (!cands.length) { toast('Belum ada kandidat. Pilih kantor dan deteksi PT/CV dulu, atau simpan prospek.'); return; }
+    var saved = 0;
+    cands.forEach(function (x) {
+      var had = !!x.c.profile;
+      var p = ensureProfile(x.c);
+      if (!had) { saved++; touch(p); }
+      state.plan.push(p.id);
+    });
+    savePlanSoon();
+    updateWorkBadges();
+    renderPview();
+    fitPlan();
+    toast(U.formatCount(cands.length) + ' prospek prioritas masuk rute' + (saved ? '; ' + U.formatCount(saved) + ' di antaranya baru disimpan ke Prospek saya.' : '.'));
+  }
+
+  function logActivity(p, o) {
+    p.aktivitas = p.aktivitas || [];
+    var a = U.newActivity(o, todayISO());
+    p.aktivitas.push(a);
+    var next = U.statusAfterActivity(p.status, a.jenis);
+    if (next !== p.status) setStatus(p, next);
+    if (o.followUp) p.followUp = o.followUp;
+    touch(p);
+    return a;
+  }
+
+  function setStatus(p, s) {
+    if (p.status === s) return;
+    p.status = s;
+    p.statusLog = p.statusLog || [];
+    p.statusLog.push({ s: s, t: Date.now() });
+  }
+
+  function planDone(id) {
+    var p = state.profiles[id];
+    if (!p) return;
+    logActivity(p, { jenis: 'kunjungan', hasil: 'Kunjungan sesuai rencana rute' });
+    togglePlan(id, false);
+    toast('Kunjungan ke ' + p.name + ' dicatat. Tambahkan hasilnya di detail prospek.');
+  }
+
+  function renderPlan() {
+    var ps = planProfiles();
+    var html = [];
+    var b = state.activeBranch;
+    html.push('<section class="ins-sec"><h3>Rencana kunjungan <small>' + U.formatCount(ps.length) + ' dari ' + U.MAX_ROUTE_STOPS + ' titik</small></h3>' +
+      '<div class="plan-opts"><label class="field"><span>Mulai dari</span><select id="planStart">' +
+      opt('branch', b ? b.name : 'Kantor BNI terdekat', state.planStart === 'branch') +
+      opt('me', state.userLoc ? 'Lokasi saya' : 'Lokasi saya (tekan Lokasi saya dulu)', state.planStart === 'me') +
+      opt('none', 'Lokasi HP saat membuka rute', state.planStart === 'none') + '</select></label>' +
+      '<label class="check"><input type="checkbox" id="planBack"' + (state.planBack ? ' checked' : '') + '><span>Kembali ke titik awal</span></label></div></section>');
+    if (!ps.length) {
+      html.push('<div class="empty"><strong>Rute masih kosong</strong><p>Tambahkan prospek dari detail perusahaan ("+ Rute kunjungan"), dari Agenda, dari klaster di tab Peluang, atau isi otomatis dengan prioritas teratas.</p>' +
+        '<div class="btn-row center"><button type="button" class="btn primary" data-action="plan-auto">Isi dari prioritas teratas</button></div></div>');
+      $('pview-rute').innerHTML = html.join('');
+      return;
+    }
+    var P = computePlan();
+    var noLoc = ps.filter(function (p) { return p.lat == null; });
+    var items = P.route.stops.map(function (p, i) {
+      var v = prospectView(p);
+      var pr = prioOf(Object.assign(profileAsCompany(p), { zone: v.zone || 'out' }), p);
+      var leg = P.start || i ? U.formatKm(P.route.legs[i]) + (i ? ' dari titik ' + i : ' dari ' + P.start.name) : 'titik pertama';
+      return '<li class="plan-item"><span class="plan-num">' + (i + 1) + '</span><button type="button" class="item" data-id="' + esc(p.id) + '">' +
+        '<span class="item-main"><span class="item-title">' + esc(p.name) + '</span><span class="item-sub">' + esc(leg) + ' · ' + esc(U.STATUS_LABEL[p.status]) + '</span>' +
+        '<span class="item-tags">' + prioTagHTML(pr) + (v.zone && v.zone !== 'out' ? '<span class="zone-pill ' + v.zone + '">' + U.ZONE_LABEL[v.zone] + '</span>' : '') + '</span></span></button>' +
+        '<div class="ag-actions"><button type="button" class="btn small" data-plan-done="' + esc(p.id) + '"><svg class="i"><use href="#i-check"/></svg>Selesai</button>' +
+        '<button type="button" class="btn small" data-plan-toggle="' + esc(p.id) + '">Hapus</button></div></li>';
+    });
+    html.push('<section class="ins-sec"><ol class="ins-list plan-list">' + items.join('') + '</ol>' +
+      '<p class="ins-note">Total ± ' + esc(U.formatKm(P.route.km)) + ' garis lurus' + (state.planBack && P.start ? ', termasuk kembali ke titik awal' : '') +
+      '. Jarak jalan dan waktu tempuh dihitung Google Maps.</p>' +
+      (noLoc.length ? '<p class="ins-note warn">' + U.formatCount(noLoc.length) + ' prospek di rute belum punya lokasi: ' + esc(noLoc.map(function (p) { return p.name; }).join(', ')) + '.</p>' : '') +
+      '<div class="btn-row">' +
+      (P.route.stops.length ? '<a class="btn primary" id="planOpen" href="' + esc(U.gmapsDirUrl(P.start, P.route.stops, { returnToStart: state.planBack })) + '" target="_blank" rel="noopener"><svg class="i"><use href="#i-route"/></svg>Buka rute di Google Maps</a>' : '') +
+      (ps.length < U.MAX_ROUTE_STOPS ? '<button type="button" class="btn" data-action="plan-auto">Tambah dari prioritas teratas</button>' : '') +
+      '<button type="button" class="btn" data-action="plan-clear">Kosongkan</button></div>' +
+      '<p class="ins-note">Di HP, buka dengan aplikasi Google Maps agar semua titik terbaca; browser HP hanya membaca 3 titik singgah. Tombol Selesai mencatat kunjungan di riwayat aktivitas.</p></section>');
+    $('pview-rute').innerHTML = html.join('');
+  }
+
+  function renderPlanLayer() {
+    if (!layers.plan) return;
+    layers.plan.clearLayers();
+    if (state.tab !== 'prospek' || state.pview !== 'rute' || !state.plan.length) return;
+    var P = computePlan();
+    var pts = P.route.stops.map(function (p) { return [p.lat, p.lon]; });
+    if (!pts.length) return;
+    var line = (P.start ? [[P.start.lat, P.start.lon]] : []).concat(pts, state.planBack && P.start ? [[P.start.lat, P.start.lon]] : []);
+    L.polyline(line, { renderer: renderers.lines, color: colors.accent, weight: 3, opacity: 0.85, dashArray: '6 6', interactive: false }).addTo(layers.plan);
+    P.route.stops.forEach(function (p, i) {
+      L.marker([p.lat, p.lon], {
+        pane: 'zoneLines', keyboard: false, interactive: false,
+        icon: L.divIcon({ className: 'plan-marker', iconSize: [24, 24], iconAnchor: [12, 12], html: '<span>' + (i + 1) + '</span>' })
+      }).addTo(layers.plan);
+    });
+  }
+
+  function fitPlan() {
+    if (state.tab !== 'prospek' || state.pview !== 'rute' || !state.plan.length) return;
+    var P = computePlan();
+    var pts = P.route.stops.map(function (p) { return [p.lat, p.lon]; });
+    if (P.start) pts.push([P.start.lat, P.start.lon]);
+    if (pts.length) map.fitBounds(L.latLngBounds(pts), { padding: [40, 40], maxZoom: 15 });
+  }
+
+  // --- Laporan ---------------------------------------------------------------
+
+  function currentReport() {
+    var range = U.periodRange(state.reportPeriod, todayISO());
+    return U.weeklyReport(Object.keys(state.profiles).map(function (id) { return state.profiles[id]; }), range, state.settings);
+  }
+
+  function reportMeta() {
+    var s = state.settings;
+    var b = state.activeBranch;
+    return { nama: U.normSpace(s.rmName), kantor: s.rmOffice || (b ? b.name.replace(/^BNI\s+/i, '') : '') };
+  }
+
+  function renderReport() {
+    var rep = currentReport();
+    var html = [];
+    html.push('<section class="ins-sec"><div class="chips">' + [['minggu', 'Minggu ini'], ['minggu-lalu', 'Minggu lalu'], ['bulan', 'Bulan ini']].map(function (x) {
+      return '<button type="button" class="chip" data-period="' + x[0] + '" aria-pressed="' + (state.reportPeriod === x[0]) + '">' + x[1] + '</button>';
+    }).join('') + '</div><p class="ins-note">Periode ' + esc(rep.range.label) + '</p></section>');
+    var types = U.ACTIVITY_TYPES.filter(function (t) { return rep.byType[t.id]; })
+      .map(function (t) { return t.label + ' ' + rep.byType[t.id]; }).join(' · ');
+    var tile = function (n, label, sub) {
+      return '<div><b>' + n + '</b><span>' + esc(label) + '</span>' + (sub ? '<small>' + esc(sub) + '</small>' : '') + '</div>';
+    };
+    html.push('<section class="ins-sec"><div class="report-tiles">' +
+      tile(U.formatCount(rep.activities.length), 'Aktivitas', types) +
+      tile(U.formatCount(rep.contacted), 'Prospek dihubungi') +
+      tile(U.formatCount(rep.created.length), 'Prospek baru') +
+      tile(U.formatCount(rep.moved.pengajuan.count), 'Masuk pengajuan', rep.moved.pengajuan.plafond ? U.formatRpShort(rep.moved.pengajuan.plafond) : '') +
+      tile(U.formatCount(rep.moved.disetujui.count), 'Disetujui / cair', rep.moved.disetujui.plafond ? U.formatRpShort(rep.moved.disetujui.plafond) : '') +
+      tile(U.formatCount(rep.upcoming.length), 'Follow-up 7 hari berikutnya') +
+      '</div></section>');
+    html.push('<section class="ins-sec"><h3>Pipeline saat ini <small>' + U.formatCount(rep.openCount) + ' aktif · ' + esc(U.formatRpShort(rep.openPlafond)) +
+      ' · ' + U.formatCount(rep.inTarget) + ' sesuai target</small></h3><table class="report-table"><thead><tr><th>Status</th><th>Prospek</th><th>Plafond</th></tr></thead><tbody>' +
+      rep.pipeline.map(function (r) {
+        return '<tr><td>' + esc(r.label) + '</td><td>' + U.formatCount(r.count) + '</td><td>' + (r.plafond ? esc(U.formatRpShort(r.plafond)) : '–') + '</td></tr>';
+      }).join('') + '</tbody></table></section>');
+    html.push('<section class="ins-sec"><h3>Aktivitas <small>' + U.formatCount(rep.activities.length) + '</small></h3>' +
+      (rep.activities.length ? '<ul class="ins-list">' + rep.activities.slice(0, 60).map(function (x) {
+        return '<li><button type="button" class="item" data-id="' + esc(x.p.id) + '"><span class="item-main"><span class="item-title">' + esc(x.p.name) + '</span>' +
+          '<span class="item-sub">' + esc(U.formatDate(x.a.tanggal) + ' · ' + U.ACTIVITY_LABEL[x.a.jenis] + (x.a.hasil ? ' · ' + x.a.hasil : '')) + '</span></span></button></li>';
+      }).join('') + '</ul>' : '<p class="ins-note">Belum ada aktivitas tercatat pada periode ini. Catat telepon, WhatsApp, atau kunjungan di detail prospek.</p>') + '</section>');
+    html.push('<section class="ins-sec"><div class="btn-row"><button type="button" class="btn primary" data-action="report-copy"><svg class="i"><use href="#i-copy"/></svg>Salin ringkasan</button>' +
+      '<button type="button" class="btn" data-action="report-xlsx"><svg class="i"><use href="#i-download"/></svg>Unduh Excel</button></div>' +
+      '<p class="ins-note">Dihitung dari aktivitas dan perubahan status yang dicatat di aplikasi ini. Ringkasan bisa ditempel ke WhatsApp atau email untuk atasan.</p></section>');
+    $('pview-laporan').innerHTML = html.join('');
+  }
+
+  async function copyReport() {
+    var text = U.reportText(currentReport(), reportMeta());
+    if (await copyText(text)) toast('Ringkasan laporan disalin.');
+    else toast('Tidak bisa menyalin otomatis.', { error: true });
+  }
+
+  async function exportReport() {
+    try {
+      await X.exportReport(currentReport(), reportMeta(), state.settings);
+    } catch (e) {
+      toast(e.message, { error: true });
+    }
+  }
+
+  // --- Perusahaan yang disembunyikan dari hasil deteksi ---------------------
+
+  var saveHiddenSoon = debounce(function () { S.set('hidden', state.hidden); }, 200);
+
+  function hiddenRecord(c) {
+    if (state.hidden[c.id]) return state.hidden[c.id];
+    var alt = (c.altIds || []).find(function (id) { return state.hidden[id]; });
+    return alt ? state.hidden[alt] : null;
+  }
+
+  function hideCompany(item, reason) {
+    // Nama tempat dari Google tidak boleh disimpan permanen; cukup Place ID-nya.
+    state.hidden[item.id] = { r: reason, t: Date.now(), name: item.source === 'google' ? '' : item.name };
+    saveHiddenSoon();
+    closeDossier(true);
+    computeResults();
+    toast('"' + item.name + '" disembunyikan dari hasil deteksi.');
+  }
+
+  function unhideCompany(id) {
+    delete state.hidden[id];
+    saveHiddenSoon();
+    computeResults();
   }
 
   // ---------------------------------------------------------------------------
@@ -1840,7 +2302,11 @@
     if (entity === 'Tbk') links.push(linkBtn('https://www.idx.co.id/id/perusahaan-tercatat/laporan-keuangan-dan-tahunan', 'external', 'Lapkeu di IDX'));
     if (item.osm) links.push(linkBtn('https://www.openstreetmap.org/' + item.osm, 'external', 'OpenStreetMap'));
     links.push('<button type="button" class="btn" data-copy="' + esc(name) + '"><svg class="i"><use href="#i-copy"/></svg>Salin nama</button>');
+    if (item.lat != null) links.unshift(planButtonHTML(p));
     html.push('<div class="links">' + links.join('') + '</div>');
+    html.push('<p class="track">Cek rekam jejak: ' + U.trackRecordLinks(name, item.city).map(function (l) {
+      return '<a href="' + esc(l.url) + '" target="_blank" rel="noopener">' + esc(l.label) + '</a>';
+    }).join(' · ') + '</p>');
 
     // Pipeline
     var pp = p || {};
@@ -1854,9 +2320,11 @@
       '<label class="field"><span>Tahun berdiri</span><input type="text" inputmode="numeric" data-f="tahunBerdiri" value="' + esc(pp.tahunBerdiri || '') + '"></label>' +
       '</div>');
     html.push('<label class="field"><span>PIC & kontak</span><input type="text" data-f="pic" value="' + esc(pp.pic || '') + '" placeholder="Nama, jabatan, nomor HP"></label>');
+    html.push('<div class="wa-row" id="waRow">' + waRowHTML(item) + '</div>');
     html.push('<label class="check"><input type="checkbox" data-f="isNasabah"' + (pp.isNasabah ? ' checked' : '') + '><span>Sudah nasabah BNI</span></label>');
     html.push('<label class="field"><span>Catatan</span><textarea data-f="catatan" placeholder="Hasil kunjungan, kebutuhan kredit, agunan, kompetitor…">' + esc(pp.catatan || '') + '</textarea></label>');
     html.push('</section>');
+    html.push(activitySectionHTML(pp));
 
     // Struktur organisasi
     html.push('<section class="d-section"><h3>Struktur organisasi</h3>');
@@ -1873,6 +2341,8 @@
     html.push('<div class="btn-row"><button type="button" class="btn small" data-action="add-year"><svg class="i"><use href="#i-plus"/></svg>Tambah tahun</button></div>');
     html.push('<p class="d-note">Isi dari laporan keuangan yang diserahkan calon debitur. Rasio dihitung otomatis; ekuitas dihitung dari aset − liabilitas bila kosong.</p>');
     html.push('</section>');
+    html.push(calcSectionHTML(pp));
+    html.push(docSectionHTML(pp, item));
 
     // Data mentah OSM
     if (item.tags && Object.keys(item.tags).length) {
@@ -1881,8 +2351,139 @@
         keys.map(function (k) { return '<tr><td>' + esc(k) + '</td><td>' + esc(item.tags[k]) + '</td></tr>'; }).join('') + '</table></div></details>');
     }
 
-    html.push('<div id="dossierFoot">' + dossierFootHTML(p) + '</div>');
+    html.push('<div id="dossierFoot">' + dossierFootHTML(p, item) + '</div>');
     $('dossierBody').innerHTML = html.join('');
+  }
+
+  // --- Bagian baru di panel detail: rute, WhatsApp, aktivitas, kalkulator, dokumen ---
+
+  function planButtonHTML(p) {
+    var inPlan = !!(p && state.plan.indexOf(p.id) >= 0);
+    return '<button type="button" class="btn' + (inPlan ? ' on' : '') + '" data-action="toggle-plan"><svg class="i"><use href="#i-route"/></svg>' +
+      (inPlan ? 'Di rute kunjungan ✓' : '+ Rute kunjungan') + '</button>';
+  }
+
+  function waContactText(item) {
+    var p = item.profile;
+    var d = item.placeId ? G.cachedDetails(item.placeId) : null;
+    return [p && p.pic, p && p.phone, item.phone, d && d.phone].filter(Boolean).join(' ');
+  }
+
+  function waRowHTML(item) {
+    var num = U.waNumber(waContactText(item));
+    return (num ? '<button type="button" class="btn small wa" data-action="wa-open"><svg class="i"><use href="#i-chat"/></svg>WhatsApp +' + esc(num) + '</button>'
+      : '<span class="hint">Isi nomor HP PIC (08…) agar bisa membuka WhatsApp dengan pesan perkenalan.</span>') +
+      '<button type="button" class="btn small" data-action="copy-intro"><svg class="i"><use href="#i-copy"/></svg>Salin pesan perkenalan</button>';
+  }
+
+  function activityItemHTML(a) {
+    return '<li><div><b>' + esc(U.formatDate(a.tanggal)) + ' · ' + esc(U.ACTIVITY_LABEL[a.jenis]) + '</b>' +
+      (a.hasil ? '<span>' + esc(a.hasil) + '</span>' : '') + (a.langkah ? '<span class="hint">Langkah berikutnya: ' + esc(a.langkah) + '</span>' : '') + '</div>' +
+      '<button type="button" class="btn icon small" data-action="del-activity" data-aid="' + esc(a.id) + '" aria-label="Hapus aktivitas"><svg class="i"><use href="#i-trash"/></svg></button></li>';
+  }
+
+  function activitySectionHTML(pp) {
+    var acts = U.sortActivities(pp.aktivitas);
+    return '<section class="d-section" id="actSec"><h3>Riwayat aktivitas <small>' + (acts.length ? U.formatCount(acts.length) + ' tercatat' : 'belum ada') + '</small></h3>' +
+      '<div class="grid2 act-form">' +
+      '<label class="field"><span>Tanggal</span><input type="date" data-a-f="tanggal" value="' + todayISO() + '"></label>' +
+      '<label class="field"><span>Jenis</span><select data-a-f="jenis">' + U.ACTIVITY_TYPES.map(function (a) { return opt(a.id, a.label, a.id === 'telepon'); }).join('') + '</select></label>' +
+      '<label class="field" style="grid-column:1/-1"><span>Hasil</span><input type="text" data-a-f="hasil" placeholder="mis. butuh KMK ±Rp3 M untuk stok, agunan ruko"></label>' +
+      '<label class="field"><span>Langkah berikutnya</span><input type="text" data-a-f="langkah" placeholder="mis. kirim proposal"></label>' +
+      '<label class="field"><span>Follow-up berikutnya</span><input type="date" data-a-f="followUp"></label>' +
+      '</div><div class="btn-row"><button type="button" class="btn small primary" data-action="add-activity"><svg class="i"><use href="#i-plus"/></svg>Catat aktivitas</button></div>' +
+      (acts.length ? '<ol class="act-list">' + acts.map(activityItemHTML).join('') + '</ol>' : '') + '</section>';
+  }
+
+  var CALC_FIELDS = [
+    ['investasi', 'Rencana investasi (Rp)', 'mis. 3 M', true], ['bunga', 'Bunga (% per tahun)', '10'], ['tenor', 'Tenor KI (tahun)', '5'],
+    ['porsi', 'Porsi dibiayai bank (%)', '70'], ['kmkLain', 'KMK di bank lain (Rp)', '0', true], ['tumbuh', 'Pertumbuhan penjualan (%)', 'otomatis']
+  ];
+
+  function calcSectionHTML(pp) {
+    var k = pp.kalkulator || {};
+    return '<section class="d-section" id="calcSec"><h3>Kalkulator kelayakan <small>perkiraan kasar</small></h3>' +
+      '<div class="grid3 calc-inputs">' + CALC_FIELDS.map(function (f) {
+        var v = k[f[0]];
+        return '<label class="field"><span>' + f[1] + '</span><input type="text" inputmode="decimal" data-c-f="' + f[0] + '"' + (f[3] ? ' data-money="c"' : '') +
+          ' value="' + esc(v == null ? '' : (f[3] ? moneyValue(v) : String(v).replace('.', ','))) + '" placeholder="' + esc(f[2]) + '"></label>';
+      }).join('') + '</div><div id="calcResult">' + calcResultHTML(pp) + '</div></section>';
+  }
+
+  var nfDays = new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 });
+  var nf2 = new Intl.NumberFormat('id-ID', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  function calcResultHTML(pp) {
+    var c = U.creditCalc(pp.keuangan, pp.kalkulator, state.settings);
+    if (!c.tahun) {
+      return '<p class="d-note">Isi laporan keuangan minimal satu tahun (penjualan, laba bersih, dan "Rincian untuk kalkulator kelayakan") untuk menghitung perkiraan plafond.</p>';
+    }
+    var inp = c.input;
+    var rows = [];
+    if (c.kmk) {
+      rows.push(['Siklus kas', nfDays.format(c.kmk.ccc) + ' hari <small>(piutang ' + nfDays.format(c.kmk.dso) + ' + persediaan ' + nfDays.format(c.kmk.dio) +
+        ' − utang usaha ' + nfDays.format(c.kmk.dpo) + ')</small>']);
+      rows.push(['Kebutuhan modal kerja', esc(U.formatRpShort(c.kmk.kebutuhan)) + ' <small>(HPP naik ' + U.formatPct(c.tumbuh, 0) + ')</small>']);
+      rows.push(['Perkiraan KMK', '<b>' + esc(U.formatRpShort(c.kmk.plafond)) + '</b> <small>(' + inp.porsi + '% dibiayai bank' + (inp.kmkLain ? ', dikurangi KMK bank lain' : '') + ')</small>']);
+    } else {
+      var miss = c.missing.filter(function (m) { return ['penjualan', 'HPP', 'piutang usaha', 'persediaan', 'utang usaha'].indexOf(m) >= 0; });
+      rows.push(['Perkiraan KMK', '<span class="hint">Isi ' + esc(miss.join(', ')) + ' tahun ' + c.tahun + ' untuk menghitung.</span>']);
+    }
+    if (c.ki) {
+      var kiShown = c.kiDibatasi ? c.dscr.kiMax : c.ki.plafond;
+      rows.push(['Perkiraan KI', '<b>' + esc(U.formatRpShort(kiShown)) + '</b> <small>(' + (c.kiDibatasi ? 'dibatasi kemampuan bayar; diminta ' + esc(U.formatRpShort(c.ki.plafond)) :
+        inp.porsi + '% dari investasi') + ', angsuran ±' + esc(U.formatRpShort(U.annuityPayment(kiShown, inp.bunga, inp.tenor))) + '/bulan, ' +
+        String(inp.bunga).replace('.', ',') + '% ' + inp.tenor + ' tahun)</small>']);
+    } else {
+      rows.push(['Perkiraan KI', '<span class="hint">Isi rencana investasi (mesin, gedung, kendaraan) untuk menghitung.</span>']);
+    }
+    if (c.dscr) {
+      rows.push(['Arus kas untuk bayar utang', esc(U.formatRpShort(c.dscr.cfads)) + ' <small>per tahun (laba + penyusutan + bunga)</small>']);
+      rows.push(['Kewajiban per tahun', esc(U.formatRpShort(c.dscr.service)) + ' <small>(angsuran lama + bunga KMK + angsuran KI)</small>']);
+      if (c.dscr.value != null) {
+        rows.push(['DSCR', '<b class="' + (c.dscr.value >= c.dscr.min ? 'ok' : 'bad') + '">' + nf2.format(c.dscr.value) + '×</b> <small>(minimal ' + nf2.format(c.dscr.min) + '×)</small>']);
+      }
+      rows.push(['KI maksimal yang masih layak', esc(U.formatRpShort(c.dscr.kiMax))]);
+    } else {
+      rows.push(['DSCR', '<span class="hint">Isi laba bersih tahun ' + c.tahun + ' untuk menghitung.</span>']);
+    }
+    var html = '<dl class="calc">' + rows.map(function (r) { return '<dt>' + r[0] + '</dt><dd>' + r[1] + '</dd>'; }).join('') + '</dl>';
+    if (c.total > 0) {
+      var label = c.target ? 'Sesuai target' : c.total < state.settings.targetMin ? 'Di bawah target' : 'Di atas target';
+      html += '<div class="calc-total"><div><span>Perkiraan plafond</span><b>' + esc(U.formatRpShort(c.total)) + '</b>' +
+        '<span class="tag ' + (c.target ? 'target' : 'offtarget') + '">' + label + '</span></div>' +
+        '<button type="button" class="btn small" data-action="use-calc">Pakai sebagai estimasi plafond</button></div>';
+    }
+    html += c.notes.map(function (n) { return '<p class="d-note">' + esc(n) + '</p>'; }).join('');
+    html += '<p class="d-note">Perkiraan kasar dari laporan keuangan ' + c.tahun + ', bukan analisis kredit resmi. Keputusan tetap mengikuti analisis dan ketentuan kredit BNI.</p>';
+    return html;
+  }
+
+  function refreshCalc() {
+    var el = $('calcResult');
+    if (el && dossierItem && dossierItem.profile) el.innerHTML = calcResultHTML(dossierItem.profile);
+  }
+
+  function docSectionHTML(pp, item) {
+    var prog = U.docProgress(pp.dokumen);
+    var open = prog.done > 0 || pp.status === 'kunjungan' || pp.status === 'pengajuan';
+    var coord = item.lat != null ? item.lat.toFixed(6) + ', ' + item.lon.toFixed(6) : '';
+    return '<details class="d-section doc-sec"' + (open ? ' open' : '') + '><summary class="d-sum">Kelengkapan dokumen pengajuan <small id="docProg">' + prog.done + '/' + prog.total + '</small></summary>' +
+      U.DOC_GROUPS.map(function (g) {
+        return '<div class="doc-group"><h4>' + esc(g.title) + '</h4>' + g.items.map(function (it) {
+          return '<label class="check"><input type="checkbox" data-doc="' + it[0] + '"' + (pp.dokumen && pp.dokumen[it[0]] ? ' checked' : '') + '><span>' + esc(it[1]) + '</span></label>';
+        }).join('') + '</div>';
+      }).join('') +
+      '<p class="d-note">Centang dokumen yang sudah diterima; file dokumennya tidak disimpan di aplikasi ini. Perkiraan nilai tanah agunan: ' +
+      '<a href="https://bhumi.atrbpn.go.id/" target="_blank" rel="noopener">Zona Nilai Tanah di BHUMI ATR/BPN</a>' +
+      (coord ? ' <button type="button" class="linklike" data-copy="' + coord + '" data-copy-msg="Koordinat disalin. Tempel di pencarian peta BHUMI.">(salin koordinat)</button>' : '') + '.</p></details>';
+  }
+
+  function rerenderDossier() {
+    var body = $('dossierBody');
+    var top = body.scrollTop;
+    renderDossier();
+    body.scrollTop = top;
   }
 
   // Telepon, situs web, rating, dan jam buka dari Google diambil hanya bila diminta (tarif detail lebih mahal).
@@ -1909,13 +2510,20 @@
     return out;
   }
 
-  function dossierFootHTML(p) {
+  function dossierFootHTML(p, item) {
+    if (!p && item && item.hidden) {
+      return '<p class="d-note warn">Disembunyikan dari hasil deteksi: ' + esc(U.HIDE_LABEL[item.hidden.r] || '') + '. ' +
+        '<button type="button" class="linklike" data-action="unhide-company">Tampilkan lagi</button></p>';
+    }
     if (p) {
       return '<div class="btn-row" style="justify-content:space-between;align-items:center"><span class="hint">Tersimpan di perangkat ini · diubah ' +
         esc(U.relTime(p.updatedAt)) + '</span><button type="button" class="btn small danger" data-action="delete-prospect">' +
         '<svg class="i"><use href="#i-trash"/></svg>Hapus dari Prospek saya</button></div>';
     }
-    return '<div class="btn-row"><button type="button" class="btn primary" data-action="save-prospect"><svg class="i"><use href="#i-check"/></svg>Simpan ke Prospek saya</button></div>';
+    return '<div class="btn-row"><button type="button" class="btn primary" data-action="save-prospect"><svg class="i"><use href="#i-check"/></svg>Simpan ke Prospek saya</button></div>' +
+      (item && item.source !== 'manual' && item.source !== 'import' ? '<div class="hide-row"><span class="hint">Tidak relevan?</span><select id="hideReason" aria-label="Alasan menyembunyikan">' +
+        U.HIDE_REASONS.map(function (r) { return opt(r.id, r.label, false); }).join('') + '</select>' +
+        '<button type="button" class="btn small" data-action="hide-company">Sembunyikan dari hasil</button></div>' : '');
   }
 
   // Setelah profil baru tercipta dari isian pertama, perbarui bagian panel tanpa merender ulang isian yang sedang diketik.
@@ -1924,7 +2532,7 @@
     var hint = $('unsavedHint');
     if (hint) hint.remove();
     var foot = $('dossierFoot');
-    if (foot) foot.innerHTML = dossierFootHTML(dossierItem.profile);
+    if (foot) foot.innerHTML = dossierFootHTML(dossierItem.profile, dossierItem);
   }
 
   function personRowHTML(o, i) {
@@ -1953,16 +2561,25 @@
     ['penjualan', 'Penjualan / omzet'], ['laba', 'Laba bersih'], ['aset', 'Total aset'], ['liabilitas', 'Total liabilitas'], ['ekuitas', 'Ekuitas']
   ];
 
+  var FIN_EXTRA_FIELDS = [
+    ['hpp', 'HPP (harga pokok penjualan)'], ['piutang', 'Piutang usaha'], ['persediaan', 'Persediaan'], ['utangUsaha', 'Utang usaha'],
+    ['penyusutan', 'Penyusutan'], ['bebanBunga', 'Beban bunga'], ['angsuranTahun', 'Angsuran pinjaman per tahun']
+  ];
+
+  function finFieldHTML(f, i, ff) {
+    return '<label class="field"><span>' + ff[1] + '</span><input type="text" inputmode="decimal" data-k-f="' + ff[0] + '" data-money="k" value="' +
+      esc(moneyValue(f[ff[0]])) + '" placeholder="Rp"><span class="money-hint" data-khint="' + i + '-' + ff[0] + '">' + esc(moneyHint(f[ff[0]])) + '</span></label>';
+  }
+
   function finCardHTML(rows, i) {
     var f = rows[i];
     return '<div class="fin-card" data-k-idx="' + i + '">' +
       '<div class="fin-card-head"><label class="field" style="flex-direction:row;align-items:center;gap:8px"><span>Tahun</span>' +
       '<input type="text" inputmode="numeric" data-k-f="tahun" value="' + esc(f.tahun || '') + '" placeholder="2025" aria-label="Tahun laporan"></label>' +
       '<span class="spacer"></span><button type="button" class="btn icon small" data-action="del-year" data-idx="' + i + '" aria-label="Hapus tahun ini"><svg class="i"><use href="#i-trash"/></svg></button></div>' +
-      '<div class="fin-grid">' + FIN_FIELDS.map(function (ff) {
-        return '<label class="field"><span>' + ff[1] + '</span><input type="text" inputmode="decimal" data-k-f="' + ff[0] + '" data-money="k" value="' +
-          esc(moneyValue(f[ff[0]])) + '" placeholder="Rp"><span class="money-hint" data-khint="' + i + '-' + ff[0] + '">' + esc(moneyHint(f[ff[0]])) + '</span></label>';
-      }).join('') + '</div>' +
+      '<div class="fin-grid">' + FIN_FIELDS.map(function (ff) { return finFieldHTML(f, i, ff); }).join('') + '</div>' +
+      '<details class="fin-extra"' + (FIN_EXTRA_FIELDS.some(function (ff) { return f[ff[0]] != null; }) ? ' open' : '') + '><summary>Rincian untuk kalkulator kelayakan</summary>' +
+      '<div class="fin-grid">' + FIN_EXTRA_FIELDS.map(function (ff) { return finFieldHTML(f, i, ff); }).join('') + '</div></details>' +
       '<div class="ratios" id="ratios-' + i + '">' + ratiosHTML(rows, i) + '</div></div>';
   }
 
@@ -1996,6 +2613,28 @@
     var f = el.getAttribute('data-f');
     var pf = el.getAttribute('data-p-f');
     var kf = el.getAttribute('data-k-f');
+    var cf = el.getAttribute('data-c-f');
+    var doc = el.getAttribute('data-doc');
+    if (cf) {
+      var pc = ensureProfile(dossierItem);
+      pc.kalkulator = pc.kalkulator || {};
+      var n = U.parseNumberID(el.value);
+      if (n == null) delete pc.kalkulator[cf];
+      else pc.kalkulator[cf] = n;
+      refreshCalc();
+      touch(pc);
+      return;
+    }
+    if (doc) {
+      var pd = ensureProfile(dossierItem);
+      pd.dokumen = pd.dokumen || {};
+      if (el.checked) pd.dokumen[doc] = pd.dokumen[doc] || todayISO();
+      else delete pd.dokumen[doc];
+      var prog = U.docProgress(pd.dokumen);
+      $('docProg').textContent = prog.done + '/' + prog.total;
+      touch(pd);
+      return;
+    }
     if (!f && !pf && !kf) return;
     var p = ensureProfile(dossierItem);
     if (f) {
@@ -2007,7 +2646,8 @@
         var hint = $('dossierBody').querySelector('[data-hint="plafond"]');
         if (hint) hint.textContent = el.value.trim() && v == null ? 'Format tidak dikenali' : moneyHint(v, true);
       } else v = el.value;
-      p[f] = v;
+      if (f === 'status') setStatus(p, v);
+      else p[f] = v;
       if (f === 'entity') p.entityManual = true;
       if (f === 'name' && !p.entityManual) {
         var det = U.detectEntity(v);
@@ -2023,6 +2663,8 @@
         dossierItem.entity = p.entity;
         if (f === 'entity') refreshOrg();
       }
+      if (f === 'pic' || f === 'phone') $('waRow').innerHTML = waRowHTML(dossierItem);
+      if (f === 'plafond' || f === 'status') refreshCalc();
     } else if (pf) {
       var row = el.closest('[data-p-idx]');
       var idx = +row.getAttribute('data-p-idx');
@@ -2043,6 +2685,7 @@
         if (h) h.textContent = el.value.trim() && fr[kf] == null ? 'Format tidak dikenali' : moneyHint(fr[kf]);
       }
       refreshRatios();
+      refreshCalc();
     }
     touch(p);
   }
@@ -2052,7 +2695,8 @@
     if (!el.hasAttribute || !el.hasAttribute('data-money') || !dossierItem || !dossierItem.profile) return;
     var p = dossierItem.profile;
     var n;
-    if (el.getAttribute('data-f') === 'plafond') n = p.plafond;
+    if (el.getAttribute('data-c-f')) n = (p.kalkulator || {})[el.getAttribute('data-c-f')];
+    else if (el.getAttribute('data-f') === 'plafond') n = p.plafond;
     else {
       var card = el.closest('[data-k-idx]');
       var fr = card && p.keuangan[+card.getAttribute('data-k-idx')];
@@ -2084,6 +2728,67 @@
         break;
       case 'delete-prospect':
         deleteProfile(dossierItem.profile.id);
+        break;
+      case 'toggle-plan':
+        p = ensureProfile(dossierItem);
+        touch(p);
+        if (togglePlan(p.id)) {
+          btn.outerHTML = planButtonHTML(p);
+          toast(state.plan.indexOf(p.id) >= 0 ? 'Masuk rute kunjungan (' + state.plan.length + '/' + U.MAX_ROUTE_STOPS + '). Lihat Prospek → Rute.' : 'Dikeluarkan dari rute kunjungan.');
+        }
+        break;
+      case 'wa-open':
+        var wName = dossierItem.profile ? dossierItem.profile.name : dossierItem.name;
+        if (openWhatsApp(wName, waContactText(dossierItem), refBranchFor(dossierItem))) {
+          var jenis = $('dossierBody').querySelector('[data-a-f="jenis"]');
+          var hasil = $('dossierBody').querySelector('[data-a-f="hasil"]');
+          if (jenis) jenis.value = 'wa';
+          if (hasil && !hasil.value) hasil.value = 'Kirim pesan perkenalan';
+        }
+        break;
+      case 'copy-intro':
+        if (needRmProfile()) break;
+        var iName = dossierItem.profile ? dossierItem.profile.name : dossierItem.name;
+        var msg = introMessage(iName, waContactText(dossierItem), refBranchFor(dossierItem));
+        if (await copyText(msg)) toast('Pesan perkenalan disalin.');
+        else toast('Tidak bisa menyalin otomatis.', { error: true });
+        break;
+      case 'add-activity':
+        p = ensureProfile(dossierItem);
+        var get = function (k) { var el = $('dossierBody').querySelector('[data-a-f="' + k + '"]'); return el ? el.value : ''; };
+        var before = p.status;
+        var a = logActivity(p, { tanggal: get('tanggal'), jenis: get('jenis'), hasil: get('hasil'), langkah: get('langkah'), followUp: get('followUp') });
+        rerenderDossier();
+        toast(U.ACTIVITY_LABEL[a.jenis] + ' dicatat' + (p.status !== before ? '; status menjadi "' + U.STATUS_LABEL[p.status] + '"' : '') +
+          (get('followUp') ? '' : (p.followUp ? '' : '. Isi follow-up berikutnya agar masuk Agenda')) + '.');
+        break;
+      case 'del-activity':
+        p = dossierItem.profile;
+        if (!p) return;
+        var aid = btn.getAttribute('data-aid');
+        p.aktivitas = (p.aktivitas || []).filter(function (x) { return x.id !== aid; });
+        touch(p);
+        rerenderDossier();
+        break;
+      case 'use-calc':
+        p = ensureProfile(dossierItem);
+        var calc = U.creditCalc(p.keuangan, p.kalkulator, state.settings);
+        if (!(calc.total > 0)) return;
+        p.plafond = Math.round(calc.total / 1e7) * 1e7;
+        touch(p);
+        var pl = $('dossierBody').querySelector('[data-f="plafond"]');
+        if (pl) pl.value = moneyValue(p.plafond);
+        var ph = $('dossierBody').querySelector('[data-hint="plafond"]');
+        if (ph) ph.textContent = moneyHint(p.plafond, true);
+        toast('Estimasi plafond diisi ' + U.formatRpShort(p.plafond) + '.');
+        break;
+      case 'hide-company':
+        hideCompany(dossierItem, $('hideReason').value);
+        break;
+      case 'unhide-company':
+        unhideCompany(dossierItem.id);
+        dossierItem.hidden = null;
+        rerenderDossier();
         break;
       case 'add-person':
         p = ensureProfile(dossierItem);
@@ -2443,6 +3148,7 @@
     if (tab === 'prospek') renderProspects();
     if (tab === 'peluang') { renderPeluang(); ensureEconomy(); }
     else if (layers.insight) layers.insight.clearLayers();
+    renderPview();
   }
 
   function setSheet(s) {
@@ -2515,6 +3221,11 @@
     $('setAuto').checked = !!s.autoDetect;
     $('setBranchSource').value = s.branchSource;
     $('setOverture').checked = s.overture !== false;
+    $('setRmName').value = s.rmName || '';
+    $('setRmTitle').value = s.rmTitle || '';
+    $('setRmOffice').value = s.rmOffice || '';
+    $('setWaTemplate').value = s.waTemplate || U.WA_TEMPLATE;
+    fillHiddenInfo();
     $('setTheme').value = s.theme;
     $('setOverpass').innerHTML = opt('auto', 'Otomatis (pindah bila sibuk)', s.overpass === 'auto') +
       O.ENDPOINTS.map(function (e) { return opt(e.url, e.label, s.overpass === e.url); }).join('');
@@ -2526,6 +3237,7 @@
     });
     $('setError').hidden = true;
     $('dlgSettings').showModal();
+    if (opts.focus && $(opts.focus)) $(opts.focus).focus();
     if (opts.focusGoogle) {
       $('setGKey').focus();
       $('setError').textContent = 'Isi Google API key dulu untuk memakai sumber Google Maps.';
@@ -2578,6 +3290,11 @@
     s.googleBudget = gBudget;
     s.googleMonthlyCap = gCap;
     s.googleDetailsCap = gDetCap;
+    s.rmName = U.normSpace($('setRmName').value);
+    s.rmTitle = U.normSpace($('setRmTitle').value) || 'Relationship Manager';
+    s.rmOffice = U.normSpace($('setRmOffice').value);
+    var tpl = $('setWaTemplate').value.trim();
+    s.waTemplate = tpl && tpl !== U.WA_TEMPLATE ? tpl : '';
     S.set('settings', s);
     if (themeChanged) { applyTheme(); onThemeChanged(); }
     applyRadiiLabels();
@@ -2621,7 +3338,26 @@
       U.FIN_KEYS.forEach(function (k) { row[k] = num(f[k]); });
       return row;
     }) : [];
+    p.aktivitas = Array.isArray(p.aktivitas) ? p.aktivitas.filter(function (a) { return a && /^\d{4}-\d{2}-\d{2}$/.test(a.tanggal || ''); }).map(function (a) {
+      return { id: String(a.id || U.uid('a')), tanggal: a.tanggal, jenis: U.ACTIVITY_LABEL[a.jenis] ? a.jenis : 'lainnya',
+        hasil: String(a.hasil || ''), langkah: String(a.langkah || ''), t: num(a.t) || 0 };
+    }) : [];
+    var dok = {};
+    if (p.dokumen && typeof p.dokumen === 'object') U.DOC_IDS.forEach(function (id) { if (p.dokumen[id]) dok[id] = String(p.dokumen[id]); });
+    p.dokumen = dok;
+    p.statusLog = Array.isArray(p.statusLog) ? p.statusLog.filter(function (x) { return x && U.STATUS_LABEL[x.s] && num(x.t); })
+      .map(function (x) { return { s: x.s, t: num(x.t) }; }) : [];
+    var calc = {};
+    if (p.kalkulator && typeof p.kalkulator === 'object') Object.keys(U.CALC_DEFAULTS).forEach(function (k) { if (num(p.kalkulator[k]) != null) calc[k] = num(p.kalkulator[k]); });
+    p.kalkulator = calc;
     return p;
+  }
+
+  function fillHiddenInfo() {
+    var n = Object.keys(state.hidden).length;
+    $('setHiddenInfo').textContent = n ? U.formatCount(n) + ' perusahaan Anda sembunyikan dari hasil deteksi (tutup, bukan target, atau alasan lain).' : '';
+    $('setHiddenInfo').hidden = !n;
+    $('btnUnhideCompanies').hidden = !n;
   }
 
   function fillBranchInfo() {
@@ -2647,7 +3383,9 @@
       settings: Object.assign({}, state.settings, { googleKey: '' }),
       profiles: Object.keys(state.profiles).map(function (id) { return state.profiles[id]; }),
       branchesImport: state.branchesImport,
-      branchesManual: state.branchesManual
+      branchesManual: state.branchesManual,
+      plan: { ids: state.plan, start: state.planStart, back: state.planBack },
+      hidden: state.hidden
     };
     X.downloadBlob(new Blob([JSON.stringify(data, null, 1)], { type: 'application/json' }), 'cadangan-prospek-' + U.isoDate(new Date()) + '.json');
   }
@@ -2698,6 +3436,17 @@
       });
       state.branchesManual = Array.from(mine.values());
       await S.set('branches:manual', state.branchesManual);
+    }
+    if (data.hidden && typeof data.hidden === 'object') {
+      Object.keys(data.hidden).forEach(function (id) {
+        var h = data.hidden[id];
+        if (h && !state.hidden[id] && !state.profiles[id]) state.hidden[id] = { r: U.HIDE_LABEL[h.r] ? h.r : 'lainnya', t: +h.t || Date.now(), name: String(h.name || '') };
+      });
+      await S.set('hidden', state.hidden);
+    }
+    if (data.plan && Array.isArray(data.plan.ids) && !state.plan.length) {
+      state.plan = data.plan.ids.filter(function (id) { return typeof id === 'string' && state.profiles[id]; }).slice(0, U.MAX_ROUTE_STOPS);
+      savePlanSoon();
     }
     if (data.settings) {
       var keepView = state.settings.view;
@@ -2986,6 +3735,20 @@
       renderProspects();
       return;
     }
+    if (btn.hasAttribute('data-pview')) { setPview(btn.getAttribute('data-pview')); return; }
+    if (btn.hasAttribute('data-plan-toggle')) { togglePlan(btn.getAttribute('data-plan-toggle')); return; }
+    if (btn.hasAttribute('data-plan-done')) { planDone(btn.getAttribute('data-plan-done')); return; }
+    if (btn.hasAttribute('data-period')) { state.reportPeriod = btn.getAttribute('data-period'); renderReport(); return; }
+    if (btn.hasAttribute('data-wa-id')) {
+      var wp = state.profiles[btn.getAttribute('data-wa-id')];
+      if (wp) openWhatsApp(wp.name, [wp.pic, wp.phone].join(' '), nearestBranchOf(wp));
+      return;
+    }
+    if (btn.hasAttribute('data-plan-cluster')) {
+      var pc = state.peluang && state.peluang.clusters[+btn.getAttribute('data-plan-cluster')];
+      if (pc) planCluster(pc);
+      return;
+    }
     switch (action) {
       case 'more-branches': state.branchLimit += 60; renderBranchList(); break;
       case 'more-results': state.resultLimit += 150; renderResults(); break;
@@ -3007,6 +3770,18 @@
         runDetection({});
         break;
       case 'add-prospect': startPick('new'); break;
+      case 'plan-auto': autoFillPlan(); break;
+      case 'plan-clear':
+        state.plan = [];
+        savePlanSoon();
+        updateWorkBadges();
+        renderPview();
+        break;
+      case 'agenda-ics': downloadAgendaIcs(); break;
+      case 'report-copy': copyReport(); break;
+      case 'report-xlsx': exportReport(); break;
+      case 'show-hidden': state.showHidden = true; computeResults(); break;
+      case 'hide-hidden': state.showHidden = false; computeResults(); break;
       case 'add-branch': openBranchDialog({ name: state.branchQuery ? bniQueryText(state.branchQuery) : '' }); break;
       case 'edit-branch': if (state.activeBranch) openBranchDialog({ branch: state.activeBranch }); break;
       case 'gmaps-bni':
@@ -3029,6 +3804,15 @@
       setSheet(s === 'peek' ? 'half' : s === 'half' ? 'full' : 'peek');
     });
     $('panel').addEventListener('click', onListClick);
+    $('panel').addEventListener('change', function (e) {
+      if (e.target.id === 'planStart') {
+        state.planStart = e.target.value;
+        if (state.planStart === 'me' && !state.userLoc) locateMe();
+      } else if (e.target.id === 'planBack') state.planBack = e.target.checked;
+      else return;
+      savePlanSoon();
+      renderPview();
+    });
 
     $('branchSearch').addEventListener('input', debounce(function (e) {
       state.branchQuery = e.target.value;
@@ -3066,6 +3850,15 @@
       if (!state.pick || state.pick.kind !== 'branch') state.branchDraft = null;
     });
     $('btnUnhideBranches').addEventListener('click', unhideBranches);
+    $('btnUnhideCompanies').addEventListener('click', function () {
+      var n = Object.keys(state.hidden).length;
+      state.hidden = {};
+      S.set('hidden', state.hidden);
+      fillHiddenInfo();
+      computeResults();
+      toast(U.formatCount(n) + ' perusahaan ditampilkan lagi di hasil deteksi.');
+    });
+    $('btnResetTemplate').addEventListener('click', function () { $('setWaTemplate').value = U.WA_TEMPLATE; });
     $('btnAddBranch').addEventListener('click', function () { openBranchDialog({ name: state.branchQuery ? bniQueryText(state.branchQuery) : '' }); });
     $('pickPaste').addEventListener('submit', onPickPaste);
     $('btnDetectArea').addEventListener('click', function () { runDetection({ manual: true }); });
@@ -3163,6 +3956,13 @@
     });
     state.branchesImport = (await S.get('branches:import')) || [];
     state.branchesManual = (await S.get('branches:manual')) || [];
+    state.hidden = (await S.get('hidden')) || {};
+    var plan = await S.get('plan');
+    if (plan && Array.isArray(plan.ids)) {
+      state.plan = plan.ids.filter(function (id) { return state.profiles[id]; }).slice(0, U.MAX_ROUTE_STOPS);
+      state.planStart = plan.start === 'me' || plan.start === 'none' ? plan.start : 'branch';
+      state.planBack = !!plan.back;
+    }
     if (state.settings.overture !== false && state.settings.branchSource !== 'import') await ensureOverture();
     var cached = await S.get('branches:osm');
     if (cached && cached.items) { state.branchesOsm = cached.items; state.branchesOsmT = cached.t; }
@@ -3188,6 +3988,19 @@
     if ('serviceWorker' in navigator && location.protocol === 'https:') {
       navigator.serviceWorker.register('sw.js').catch(function () { /* opsional */ });
     }
+    remindAgenda();
+  }
+
+  // Pengingat follow-up sekali sehari saat aplikasi dibuka.
+  async function remindAgenda() {
+    var g = U.agendaGroups(Object.keys(state.profiles).map(function (id) { return state.profiles[id]; }), todayISO());
+    if (!g.late.length && !g.today.length) return;
+    if ((await S.get('agendaReminded')) === todayISO()) return;
+    await S.set('agendaReminded', todayISO());
+    var parts = [];
+    if (g.today.length) parts.push(U.formatCount(g.today.length) + ' follow-up hari ini');
+    if (g.late.length) parts.push(U.formatCount(g.late.length) + ' terlambat');
+    toast(parts.join(' dan ') + '. Lihat Prospek → Agenda.', { ms: 8000 });
   }
 
   window.addEventListener('DOMContentLoaded', function () {
