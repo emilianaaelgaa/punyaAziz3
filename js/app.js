@@ -3159,6 +3159,79 @@
     setTimeout(function () { if (map) map.invalidateSize(); }, 320);
   }
 
+  // Lembar bawah di ponsel bisa digeser dengan jari:
+  // - pegangan atau baris tab: tarik ke atas/bawah untuk mengubah tinggi;
+  // - isi panel: geser ke atas memperbesar lembar dulu, tarik ke bawah saat sudah di paling atas memperkecilnya.
+  var SHEET_ORDER = ['peek', 'half', 'full'];
+
+  function sheetHeights() {
+    var vh = window.innerHeight;
+    return { peek: 148, half: Math.round(vh * 0.5), full: Math.round(vh * 0.82) };
+  }
+
+  function bindSheetGestures() {
+    var panel = $('panel');
+    var app = $('app');
+    var g = null;
+    var suppressClickUntil = 0;
+    panel.addEventListener('touchstart', function (e) {
+      g = null;
+      if (!isMobile() || e.touches.length !== 1) return;
+      var t = e.touches[0];
+      g = {
+        x: t.clientX, y: t.clientY, t: Date.now(), h: panel.getBoundingClientRect().height, dy: 0, mode: null,
+        grip: !!e.target.closest('.sheet-handle, .tabs'), scroller: e.target.closest('.tabpanel')
+      };
+    }, { passive: true });
+    panel.addEventListener('touchmove', function (e) {
+      if (!g || e.touches.length !== 1) return;
+      var t = e.touches[0];
+      var dx = t.clientX - g.x, dy = t.clientY - g.y;
+      if (!g.mode) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        var sheet = app.dataset.sheet;
+        var atTop = !g.scroller || g.scroller.scrollTop <= 0;
+        if (Math.abs(dx) > Math.abs(dy)) g.mode = 'none';
+        else if (g.grip) g.mode = 'drag';
+        else if (dy < 0 && sheet !== 'full') g.mode = 'drag';
+        else if (dy > 0 && atTop && sheet !== 'peek') g.mode = 'drag';
+        else g.mode = 'scroll';
+        // Bila peramban sudah mulai menggulir, jangan rebut gerakannya.
+        if (g.mode === 'drag' && !e.cancelable) g.mode = 'scroll';
+        if (g.mode === 'drag') app.classList.add('sheet-dragging');
+      }
+      if (g.mode !== 'drag') return;
+      e.preventDefault();
+      g.dy = dy;
+      var H = sheetHeights();
+      app.style.setProperty('--sheet-h', Math.max(H.peek - 40, Math.min(H.full, g.h - dy)) + 'px');
+    }, { passive: false });
+    var end = function () {
+      var gg = g;
+      g = null;
+      if (!gg || gg.mode !== 'drag') return;
+      app.classList.remove('sheet-dragging');
+      app.style.removeProperty('--sheet-h');
+      suppressClickUntil = Date.now() + 250;
+      var H = sheetHeights();
+      var h = gg.h - gg.dy;
+      var cur = SHEET_ORDER.indexOf(app.dataset.sheet);
+      var target = SHEET_ORDER.reduce(function (best, k) { return Math.abs(H[k] - h) < Math.abs(H[best] - h) ? k : best; }, 'peek');
+      var speed = gg.dy / Math.max(1, Date.now() - gg.t);
+      // Dilepas dekat tinggi semula: sentakan cepat atau geseran > 50 px tetap pindah satu tingkat.
+      if (target === app.dataset.sheet && (Math.abs(speed) > 0.5 || Math.abs(gg.dy) > 50)) {
+        target = SHEET_ORDER[Math.max(0, Math.min(2, cur + (gg.dy < 0 ? 1 : -1)))];
+      }
+      if (target === app.dataset.sheet) { if (map) map.invalidateSize(); } else setSheet(target);
+    };
+    panel.addEventListener('touchend', end);
+    panel.addEventListener('touchcancel', end);
+    // Ketukan yang sebenarnya akhir dari geseran tidak dianggap memilih tab.
+    panel.addEventListener('click', function (e) {
+      if (Date.now() < suppressClickUntil) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
+  }
+
   // ---------------------------------------------------------------------------
   // Lokasi saya
   // ---------------------------------------------------------------------------
@@ -3799,6 +3872,7 @@
       setTab(t.getAttribute('data-tab'));
       if (isMobile() && $('app').dataset.sheet === 'peek') setSheet('half');
     });
+    bindSheetGestures();
     $('sheetHandle').addEventListener('click', function () {
       var s = $('app').dataset.sheet;
       setSheet(s === 'peek' ? 'half' : s === 'half' ? 'full' : 'peek');

@@ -1080,6 +1080,57 @@ async function run() {
     assert.equal(await m.evaluate(() => document.getElementById('app').dataset.sheet), 'full');
   });
 
+  await step('ponsel: lembar bawah digeser jari, isi tab bergulir utuh', async () => {
+    const cdp = await mobile.newCDPSession(m);
+    const swipe = async (x, y0, y1, ms = 300) => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y: y0 }] });
+      for (let i = 1; i <= 12; i++) {
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y0 + (y1 - y0) * i / 12 }] });
+        await new Promise((r) => setTimeout(r, ms / 12));
+      }
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await m.waitForTimeout(450);
+    };
+    const sheet = () => m.evaluate(() => document.getElementById('app').dataset.sheet);
+    const handleY = async () => { const b = await m.locator('#sheetHandle').boundingBox(); return b.y + b.height / 2; };
+    await m.waitForFunction(() => document.getElementById('toast').hidden, null, { timeout: 10000 }).catch(() => {});
+    // Pegangan ditarik ke bawah lalu ke atas
+    await swipe(195, await handleY(), 830);
+    assert.equal(await sheet(), 'peek');
+    let y = await handleY();
+    await swipe(195, y, y - 80, 150);
+    assert.equal(await sheet(), 'half');
+    // Isi tab Deteksi (judul, kotak zona, daftar) bergulir sebagai satu bagian
+    const sc = await m.evaluate(() => { const el = document.getElementById('tab-deteksi'); return { h: el.clientHeight, sh: el.scrollHeight }; });
+    assert.ok(sc.sh > sc.h + 500, 'isi tab bisa digulir ' + JSON.stringify(sc));
+    const box = await m.locator('#tab-deteksi').boundingBox();
+    await swipe(195, box.y + box.height - 20, box.y + box.height - 160);
+    assert.equal(await sheet(), 'full', 'geser isi ke atas memperbesar lembar dulu');
+    const box2 = await m.locator('#tab-deteksi').boundingBox();
+    await swipe(195, box2.y + box2.height - 30, box2.y + 60);
+    assert.ok(await m.evaluate(() => document.getElementById('tab-deteksi').scrollTop) > 100, 'lalu isi bergulir');
+    const item = await m.evaluate(() => {
+      const p = document.getElementById('tab-deteksi').getBoundingClientRect();
+      return Array.from(document.querySelectorAll('#resultList .item')).some((el) => {
+        const r = el.getBoundingClientRect();
+        return r.bottom > p.top + 20 && r.top < p.bottom - 20;
+      });
+    });
+    assert.ok(item, 'daftar usaha terlihat setelah digulir');
+    await m.screenshot({ path: path.join(SHOT_DIR, '22-ponsel-gulir.png') });
+    // Tunggu sisa gulungan (fling) berhenti di posisi paling atas.
+    for (let i = 0; i < 20; i++) {
+      await m.evaluate(() => { document.getElementById('tab-deteksi').scrollTop = 0; });
+      await m.waitForTimeout(150);
+      if (await m.evaluate(() => document.getElementById('tab-deteksi').scrollTop) === 0) break;
+    }
+    await swipe(195, box2.y + 80, box2.y + 300);
+    assert.equal(await sheet(), 'half', 'tarik ke bawah di posisi paling atas memperkecil lembar');
+    await m.tap('#tabbtn-peluang');
+    await m.waitForTimeout(300);
+    assert.equal(await m.evaluate(() => window.__PP_STATE__.tab), 'peluang', 'ketukan tab tetap berfungsi');
+  });
+
   // Tema gelap
   const dark = await browser.newContext({ viewport: { width: 1366, height: 860 }, colorScheme: 'dark', locale: 'id-ID' });
   await mockNetwork(dark);
@@ -1282,4 +1333,5 @@ async function run() {
   if (failed || errors.length) process.exitCode = 1;
 }
 
-run().catch((e) => { console.error(e); process.exit(1); });
+if (require.main === module) run().catch((e) => { console.error(e); process.exit(1); });
+else module.exports = { startServer, mockNetwork, mockGoogle };

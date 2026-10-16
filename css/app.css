@@ -97,6 +97,10 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 html, body { height: 100%; }
+@media (max-width: 760px) {
+  /* Tarikan ke bawah di aplikasi tidak memuat ulang halaman. */
+  html, body { overscroll-behavior-y: none; }
+}
 body {
   margin: 0;
   background: var(--paper);
@@ -750,8 +754,7 @@ legend { padding: 0; margin-bottom: 10px; font-weight: 700; font-size: 13px; }
 .toast {
   position: fixed; left: 50%; bottom: calc(84px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); z-index: 2000;
   max-width: min(520px, calc(100% - 32px)); padding: 10px 16px; border-radius: 10px;
-  background: var(--ink); color: var(--card); font-weight: 600; font-size: 13px; box-shadow: var(--shadow);
-}
+  background: var(--ink); color: var(--card); font-weight: 600; font-size: 13px; box-shadow: var(--shadow); pointer-events: none; }
 .toast.err { background: var(--danger); color: #fff; }
 
 /* ---------- Ponsel ---------- */
@@ -777,11 +780,15 @@ legend { padding: 0; margin-bottom: 10px; font-weight: 700; font-size: 13px; }
     padding-bottom: env(safe-area-inset-bottom, 0px); overflow: hidden;
   }
   .sheet-handle {
-    display: grid; place-items: center; height: 18px; width: 100%; border: 0; background: var(--card); cursor: pointer; flex: none;
-    border-radius: 16px 16px 0 0;
+    display: grid; place-items: center; height: 24px; width: 100%; border: 0; background: var(--card); cursor: grab; flex: none;
+    border-radius: 16px 16px 0 0; touch-action: none;
   }
-  .sheet-handle span { width: 40px; height: 4px; border-radius: 2px; background: var(--line); }
-  .tabs { padding: 0 6px; }
+  .sheet-handle span { width: 44px; height: 5px; border-radius: 3px; background: var(--ink-3); opacity: .45; }
+  .tabs { padding: 0 6px; touch-action: none; }
+  /* Seluruh isi tab bergulir sebagai satu bagian, termasuk judul, kotak zona, dan pencarian. */
+  .tabpanel { overflow-y: auto; overscroll-behavior-y: contain; -webkit-overflow-scrolling: touch; }
+  .tabpanel .list, .tabpanel .insight, .tabpanel .pview { flex: none; overflow: visible; min-height: auto; }
+  .app.sheet-dragging .panel { box-shadow: 0 -8px 24px rgba(0, 0, 0, .18); }
   .tabs [role="tab"] { padding: 9px 4px 10px; font-size: 12.5px; }
   .panel-head { padding: 10px; gap: 8px; }
   .app[data-sheet="peek"] .panel-head > :not(.context):not(.pipeline):not(.search) { display: none; }

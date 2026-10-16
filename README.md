@@ -68,6 +68,8 @@ Aplikasi membutuhkan internet untuk peta dan data OpenStreetMap. Jika jaringan k
    - Di Google Maps desktop: buka tempatnya, lalu salin alamat dari address bar browser (tautan yang memuat `!3d…!4d…` atau `@lat,lon`).
 7. Unduh **cadangan** secara berkala dari **Pengaturan**, karena data hanya tersimpan di browser perangkat tersebut.
 
+Di HP, panel bawah (tab Cabang, Deteksi, Peluang, Prospek) bisa digeser dengan jari: tarik garis pegangan atau baris tab ke atas untuk memperbesar, ke bawah untuk memperkecil. Isi tab, termasuk judul dan kotak zona, bergulir sebagai satu bagian. Saat panel belum penuh, geser isinya ke atas untuk memperbesar panel dulu; saat sudah di paling atas, tarik ke bawah untuk memperkecilnya.
+
 ## Kerja harian
 
 Tab **Prospek** punya empat tampilan: **Daftar**, **Agenda**, **Rute**, dan **Laporan**. Alur yang disarankan:
